@@ -116,95 +116,113 @@ public:
 	}
 
 	// clear out blocks that contain code which has been modified
-	bool InvalidateRange(Bitu start,Bitu end) {
-		Bits index=1+(end>>DYN_HASH_SHIFT);
-		bool is_current_block=false;	// if the current block is modified, it has to be exited as soon as possible
+	bool InvalidateRange(Bitu start, Bitu end) {
+    Bits index = (end >> DYN_HASH_SHIFT);
+    bool is_current_block = false;
 
-		Bit32u ip_point=SegPhys(cs)+reg_eip;
-		ip_point=(PAGING_GetPhysicalPage(ip_point)-(phys_page<<12))+(ip_point&0xfff);
-		while (index>=0) {
-			Bitu map=0;
-			// see if there is still some code in the range
-			for (Bitu count=start;count<=end;count++) map+=write_map[count];
-			if (!map) return is_current_block;	// no more code, finished
+    Bit32u ip_point = SegPhys(cs) + reg_eip;
+    ip_point = (PAGING_GetPhysicalPage(ip_point) - (phys_page << 12)) + (ip_point & 0xfff);
 
-			CacheBlockDynRec * block=hash_map[index];
-			while (block) {
-				CacheBlockDynRec * nextblock=block->hash.next;
-				// test if this block is in the range
-				if (start<=block->page.end && end>=block->page.start) {
-					if (ip_point<=block->page.end && ip_point>=block->page.start) is_current_block=true;
-					block->Clear();		// clear the block, decrements the write_map accordingly
-				}
-				block=nextblock;
-			}
-			index--;
-		}
-		return is_current_block;
-	}
+    while (index >= 0) {
+        Bitu map = 0;
+        for (Bitu i = start; i <= end; i++) {
+            map |= write_map[i];
+        }
+        if (!map) return is_current_block;
+
+        CacheBlockDynRec * block = hash_map[index];
+        CacheBlockDynRec * prev = NULL;
+        while (block) {
+            CacheBlockDynRec * nextblock = block->hash.next;
+            if (start <= block->page.end && end >= block->page.start) {
+                if (ip_point <= block->page.end && ip_point >= block->page.start) {
+                    is_current_block = true;
+                }
+                block->Clear();
+                if (prev) {
+                    prev->hash.next = nextblock;
+                } else {
+                    hash_map[index] = nextblock;
+                }
+            } else {
+                prev = block;
+            }
+            block = nextblock;
+        }
+        index--;
+    }
+    return is_current_block;
+}
 
 	// the following functions will clean all cache blocks that are invalid now due to the write
-	void writeb(PhysPt addr,Bitu val){
-		addr&=4095;
-		if (host_readb(hostmem+addr)==(Bit8u)val) return;
-		host_writeb(hostmem+addr,val);
-		// see if there's code where we are writing to
-		if (!host_readb(&write_map[addr])) {
-			if (active_blocks) return;		// still some blocks in this page
-			active_count--;
-			if (!active_count) Release();	// delay page releasing until active_count is zero
-			return;
-		} else if (!invalidation_map) {
-			invalidation_map=(Bit8u*)malloc(4096);
-			memset(invalidation_map,0,4096);
-		}
-		invalidation_map[addr]++;
-		InvalidateRange(addr,addr);
-	}
-	void writew(PhysPt addr,Bitu val){
-		addr&=4095;
-		if (host_readw(hostmem+addr)==(Bit16u)val) return;
-		host_writew(hostmem+addr,val);
-		// see if there's code where we are writing to
-		if (!host_readw(&write_map[addr])) {
-			if (active_blocks) return;		// still some blocks in this page
-			active_count--;
-			if (!active_count) Release();	// delay page releasing until active_count is zero
-			return;
-		} else if (!invalidation_map) {
-			invalidation_map=(Bit8u*)malloc(4096);
-			memset(invalidation_map,0,4096);
-		}
+	void writeb(PhysPt addr, Bitu val) {
+    addr &= 4095;
+    Bit8u current = host_readb(hostmem + addr);
+    if (current == (Bit8u)val) return;
+    host_writeb(hostmem + addr, val);
+
+    if (!write_map[addr]) {
+        if (active_blocks) return;
+        active_count--;
+        if (!active_count) Release();
+        return;
+    }
+
+    if (!invalidation_map) {
+        invalidation_map = (Bit8u*)malloc(4096);
+        memset(invalidation_map, 0, 4096);
+    }
+    invalidation_map[addr]++;
+    InvalidateRange(addr, addr);
+}
+	void writew(PhysPt addr, Bitu val) {
+    addr &= 4095;
+    Bit16u current = host_readw(hostmem + addr);
+    if (current == (Bit16u)val) return;
+    host_writew(hostmem + addr, val);
+
+    if (!host_readw(&write_map[addr])) {
+        if (active_blocks) return;
+        active_count--;
+        if (!active_count) Release();
+        return;
+    }
+
+    if (!invalidation_map) {
+        invalidation_map = (Bit8u*)malloc(4096);
+        memset(invalidation_map, 0, 4096);
+    }
 #if defined(WORDS_BIGENDIAN) || !defined(C_UNALIGNED_MEMORY)
-		host_writew(&invalidation_map[addr],
-			host_readw(&invalidation_map[addr])+0x101);
+    host_writew(&invalidation_map[addr], host_readw(&invalidation_map[addr]) + 0x101);
 #else
-		(*(Bit16u*)&invalidation_map[addr])+=0x101;
+    (*(Bit16u*)&invalidation_map[addr]) += 0x101;
 #endif
-		InvalidateRange(addr,addr+1);
-	}
-	void writed(PhysPt addr,Bitu val){
-		addr&=4095;
-		if (host_readd(hostmem+addr)==(Bit32u)val) return;
-		host_writed(hostmem+addr,val);
-		// see if there's code where we are writing to
-		if (!host_readd(&write_map[addr])) {
-			if (active_blocks) return;		// still some blocks in this page
-			active_count--;
-			if (!active_count) Release();	// delay page releasing until active_count is zero
-			return;
-		} else if (!invalidation_map) {
-			invalidation_map=(Bit8u*)malloc(4096);
-			memset(invalidation_map,0,4096);
-		}
+    InvalidateRange(addr, addr + 1);
+}
+	void writed(PhysPt addr, Bitu val) {
+    addr &= 4095;
+    Bit32u current = host_readd(hostmem + addr);
+    if (current == (Bit32u)val) return;
+    host_writed(hostmem + addr, val);
+
+    if (!host_readd(&write_map[addr])) {
+        if (active_blocks) return;
+        active_count--;
+        if (!active_count) Release();
+        return;
+    }
+
+    if (!invalidation_map) {
+        invalidation_map = (Bit8u*)malloc(4096);
+        memset(invalidation_map, 0, 4096);
+    }
 #if defined(WORDS_BIGENDIAN) || !defined(C_UNALIGNED_MEMORY)
-		host_writed(&invalidation_map[addr],
-			host_readd(&invalidation_map[addr])+0x1010101);
+    host_writed(&invalidation_map[addr], host_readd(&invalidation_map[addr]) + 0x1010101);
 #else
-		(*(Bit32u*)&invalidation_map[addr])+=0x1010101;
+    (*(Bit32u*)&invalidation_map[addr]) += 0x1010101;
 #endif
-		InvalidateRange(addr,addr+3);
-	}
+    InvalidateRange(addr, addr + 3);
+}
 	bool writeb_checked(PhysPt addr,Bitu val) {
 		addr&=4095;
 		if (host_readb(hostmem+addr)==(Bit8u)val) return false;
@@ -307,37 +325,34 @@ public:
 	}
 	// remove a cache block
 	void DelCacheBlock(CacheBlockDynRec * block) {
-		active_blocks--;
-		active_count=16;
-		CacheBlockDynRec * * bwhere=&hash_map[block->hash.index];
-		while (*bwhere!=block) {
-			bwhere=&((*bwhere)->hash.next);
-			//Will crash if a block isn't found, which should never happen.
-		}
-		*bwhere=block->hash.next;
+    active_blocks--;
+    active_count = 16;
 
-		// remove the cleared block from the write map
-		if (GCC_UNLIKELY(block->cache.wmapmask!=NULL)) {
-			// first part is not influenced by the mask
-			for (Bitu i=block->page.start;i<block->cache.maskstart;i++) {
-				if (write_map[i]) write_map[i]--;
-			}
-			Bitu maskct=0;
-			// last part sticks to the writemap mask
-			for (Bitu i=block->cache.maskstart;i<=block->page.end;i++,maskct++) {
-				if (write_map[i]) {
-					// only adjust writemap if it isn't masked
-					if ((maskct>=block->cache.masklen) || (!block->cache.wmapmask[maskct])) write_map[i]--;
-				}
-			}
-			free(block->cache.wmapmask);
-			block->cache.wmapmask=NULL;
-		} else {
-			for (Bitu i=block->page.start;i<=block->page.end;i++) {
-				if (write_map[i]) write_map[i]--;
-			}
-		}
-	}
+    CacheBlockDynRec ** bwhere = &hash_map[block->hash.index];
+    while (*bwhere != block) {
+        bwhere = &((*bwhere)->hash.next);
+    }
+    *bwhere = block->hash.next;
+
+    if (GCC_UNLIKELY(block->cache.wmapmask != NULL)) {
+        Bitu i = block->page.start;
+        for (; i < block->cache.maskstart; i++) {
+            write_map[i] -= (write_map[i] > 0);
+        }
+        Bitu maskct = 0;
+        for (; i <= block->page.end; i++, maskct++) {
+            if (write_map[i] && (maskct >= block->cache.masklen || !block->cache.wmapmask[maskct])) {
+                write_map[i]--;
+            }
+        }
+        free(block->cache.wmapmask);
+        block->cache.wmapmask = NULL;
+    } else {
+        for (Bitu i = block->page.start; i <= block->page.end; i++) {
+            write_map[i] -= (write_map[i] > 0);
+        }
+    }
+}
 
 	void Release(void) {
 		MEM_SetPageHandler(phys_page,1,old_pagehandler);	// revert to old handler
