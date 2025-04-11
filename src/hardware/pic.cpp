@@ -257,8 +257,8 @@ static void write_data(Bitu port,Bitu val,Bitu iolen) {
 		
 		LOG(LOG_PIC,LOG_NORMAL)("%d:ICW 4 %X",port==0x21 ? 0 : 1,val);
 
-		if ((val&0x01)==0) E_Exit("PIC:ICW4: %x, 8085 mode not handled",val);
-		if ((val&0x10)!=0) LOG_MSG("PIC:ICW4: %x, special fully-nested mode not handled",val);
+		if ((val&0x01)==0) E_Exit("PIC:ICW4: %lx, 8085 mode not handled",val);
+		if ((val&0x10)!=0) LOG_MSG("PIC:ICW4: %lx, special fully-nested mode not handled",val);
 
 		if(pic->icw_index++ >= pic->icw_words) pic->icw_index=0;
 		break;
