@@ -6,6 +6,8 @@ This was built with C++17 and is likely to require it due to memory updates.<BR 
 dynrec is optimised but untested. If you can test it on a mobile platform please open a ticket letting everyone know how it went.<BR />
 This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
 
+<img src="Screenshot from 2025-04-11 14-45-25.png" alt="Alpha3 Experimental">
+
 libretro wrapper for DOSBox
 
 * To use you can either load an exe/com/bat file or a *.conf file.
