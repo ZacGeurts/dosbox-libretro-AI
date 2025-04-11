@@ -105,50 +105,43 @@ bool Value::operator==(Value const& other) const {
 	return false;
 }
 bool Value::SetValue(string const& in, Etype _type) noexcept {
-	/* Throw exception if the current type isn't the wanted type 
-	 * Unless the wanted type is current.
-	 */
-if (_type == V_CURRENT && type == V_NONE) {
-    // LOG_MSG("Cannot set value with no type");
-    return false;
-}
-	if(_type != V_CURRENT) { 
-		if (type != V_NONE && type != _type) {
-    // LOG_MSG("Type mismatch in SetValue");
-    return false;
-}
-		type = _type;
-	}
-	bool retval = true;
-	switch(type){
-		case V_HEX:
-			retval = set_hex(in);
-			break;
-		case V_INT: {
-    		if (!set_hex(in)) return false;
-    		break;
-		}
-		case V_BOOL:
-			retval = set_bool(in);
-			break;
-		case V_STRING:
-			set_string(in);
-			break;
-		case V_DOUBLE: {
-    char* endptr;
-    _double = strtod(in.c_str(), &endptr);
-    if (*endptr || in.empty()) return false;  // Replace throw
-    type = V_DOUBLE;
-    break;
-}
-		case V_NONE:
-		case V_CURRENT:
-		default:
-			/* Shouldn't happen!/Unhandled */
-			throw WrongType();
-			break;
-	}
-	return retval;
+    if (_type == V_CURRENT && type == V_NONE) {
+        return false;
+    }
+    if (_type != V_CURRENT) { 
+        if (type != V_NONE && type != _type) {
+            return false;
+        }
+        type = _type;
+    }
+    bool retval = true;
+    switch (type) {
+        case V_HEX:
+            retval = set_hex(in);
+            break;
+        case V_INT:
+            if (!set_hex(in)) return false;
+            break;
+        case V_BOOL:
+            retval = set_bool(in);
+            break;
+        case V_STRING:
+            set_string(in);
+            break;
+        case V_DOUBLE: {
+            char* endptr;
+            _double = strtod(in.c_str(), &endptr);
+            if (*endptr || in.empty()) return false;
+            type = V_DOUBLE;
+            break;
+        }
+        case V_NONE:
+        case V_CURRENT:
+        default:
+            return false;
+            break;
+    }
+    return retval;
 }
 
 bool Value::set_hex(std::string const& in) {
