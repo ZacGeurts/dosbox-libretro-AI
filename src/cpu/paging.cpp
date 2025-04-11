@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <string.h>
+#include <cstring>
 
 #include "dosbox.h"
 #include "mem.h"
@@ -166,81 +167,73 @@ void PAGING_PageFault(PhysPt lin_addr,Bitu page_addr,Bitu faultcode) {
 //	LOG_MSG("SS:%04x SP:%08X",SegValue(ss),reg_esp);
 }
 
-static INLINE void InitPageUpdateLink(Bitu relink,PhysPt addr) {
-	if (relink==0) return;
-	if (paging.links.used) {
-		if (paging.links.entries[paging.links.used-1]==(addr>>12)) {
-			paging.links.used--;
-			PAGING_UnlinkPages(addr>>12,1);
-		}
-	}
-	if (relink>1) PAGING_LinkPage_ReadOnly(addr>>12,relink);
+[[gnu::always_inline]] static inline void InitPageUpdateLink(Bitu relink, PhysPt addr) {
+    if (relink == 0) [[gnu::likely]] return;
+    if (paging.links.used && paging.links.entries[paging.links.used - 1] == (addr >> 12)) {
+        paging.links.used--;
+        PAGING_UnlinkPages(addr >> 12, 1);
+    }
+    if (relink > 1) PAGING_LinkPage_ReadOnly(addr >> 12, relink);
 }
 
-static INLINE void InitPageCheckPresence(PhysPt lin_addr,bool writing,X86PageEntry& table,X86PageEntry& entry) {
-	Bitu lin_page=lin_addr >> 12;
-	Bitu d_index=lin_page >> 10;
-	Bitu t_index=lin_page & 0x3ff;
-	Bitu table_addr=(paging.base.page<<12)+d_index*4;
-	table.load=phys_readd(table_addr);
-	if (!table.block.p) {
-		LOG(LOG_PAGING,LOG_NORMAL)("NP Table");
-		PAGING_PageFault(lin_addr,table_addr,
-			(writing?0x02:0x00) | (((cpu.cpl&cpu.mpl)==0)?0x00:0x04));
-		table.load=phys_readd(table_addr);
-		if (GCC_UNLIKELY(!table.block.p))
-			E_Exit("Pagefault didn't correct table");
-	}
-	Bitu entry_addr=(table.block.base<<12)+t_index*4;
-	entry.load=phys_readd(entry_addr);
-	if (!entry.block.p) {
-//		LOG(LOG_PAGING,LOG_NORMAL)("NP Page");
-		PAGING_PageFault(lin_addr,entry_addr,
-			(writing?0x02:0x00) | (((cpu.cpl&cpu.mpl)==0)?0x00:0x04));
-		entry.load=phys_readd(entry_addr);
-		if (GCC_UNLIKELY(!entry.block.p))
-			E_Exit("Pagefault didn't correct page");
-	}
+[[gnu::always_inline]] static inline void InitPageCheckPresence(PhysPt lin_addr, bool writing, X86PageEntry& table, X86PageEntry& entry) {
+    Bitu lin_page = lin_addr >> 12;
+    Bitu d_index = lin_page >> 10;
+    Bitu t_index = lin_page & 0x3ff;
+    Bitu table_addr = (paging.base.page << 12) + d_index * 4;
+    table.load = phys_readd(table_addr);
+    if (!table.block.p) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("NP Table");
+        PAGING_PageFault(lin_addr, table_addr, (writing ? 0x02 : 0x00) | (((cpu.cpl & cpu.mpl) == 0) ? 0x00 : 0x04));
+        table.load = phys_readd(table_addr);
+        if (!table.block.p) [[gnu::unlikely]] E_Exit("Pagefault didn't correct table");
+    }
+    Bitu entry_addr = (table.block.base << 12) + t_index * 4;
+    entry.load = phys_readd(entry_addr);
+    if (!entry.block.p) [[gnu::unlikely]] {
+        PAGING_PageFault(lin_addr, entry_addr, (writing ? 0x02 : 0x00) | (((cpu.cpl & cpu.mpl) == 0) ? 0x00 : 0x04));
+        entry.load = phys_readd(entry_addr);
+        if (!entry.block.p) [[gnu::unlikely]] E_Exit("Pagefault didn't correct page");
+    }
 }
 			
-static INLINE bool InitPageCheckPresence_CheckOnly(PhysPt lin_addr,bool writing,X86PageEntry& table,X86PageEntry& entry) {
-	Bitu lin_page=lin_addr >> 12;
-	Bitu d_index=lin_page >> 10;
-	Bitu t_index=lin_page & 0x3ff;
-	Bitu table_addr=(paging.base.page<<12)+d_index*4;
-	table.load=phys_readd(table_addr);
-	if (!table.block.p) {
-		paging.cr2=lin_addr;
-		cpu.exception.which=EXCEPTION_PF;
-		cpu.exception.error=(writing?0x02:0x00) | (((cpu.cpl&cpu.mpl)==0)?0x00:0x04);
-		return false;
-	}
-	Bitu entry_addr=(table.block.base<<12)+t_index*4;
-	entry.load=phys_readd(entry_addr);
-	if (!entry.block.p) {
-		paging.cr2=lin_addr;
-		cpu.exception.which=EXCEPTION_PF;
-		cpu.exception.error=(writing?0x02:0x00) | (((cpu.cpl&cpu.mpl)==0)?0x00:0x04);
-		return false;
-	}
-	return true;
+[[gnu::always_inline]] static inline bool InitPageCheckPresence_CheckOnly(PhysPt lin_addr, bool writing, X86PageEntry& table, X86PageEntry& entry) {
+    Bitu lin_page = lin_addr >> 12;
+    Bitu d_index = lin_page >> 10;
+    Bitu t_index = lin_page & 0x3ff;
+    Bitu table_addr = (paging.base.page << 12) + d_index * 4;
+    table.load = phys_readd(table_addr);
+    if (!table.block.p) [[gnu::unlikely]] {
+        paging.cr2 = lin_addr;
+        cpu.exception.which = EXCEPTION_PF;
+        cpu.exception.error = (writing ? 0x02 : 0x00) | (((cpu.cpl & cpu.mpl) == 0) ? 0x00 : 0x04);
+        return false;
+    }
+    Bitu entry_addr = (table.block.base << 12) + t_index * 4;
+    entry.load = phys_readd(entry_addr);
+    if (!entry.block.p) [[gnu::unlikely]] {
+        paging.cr2 = lin_addr;
+        cpu.exception.which = EXCEPTION_PF;
+        cpu.exception.error = (writing ? 0x02 : 0x00) | (((cpu.cpl & cpu.mpl) == 0) ? 0x00 : 0x04);
+        return false;
+    }
+    return true;
 }
 
 // check if a user-level memory access would trigger a privilege page fault
-static INLINE bool InitPage_CheckUseraccess(Bitu u1,Bitu u2) {
-	switch (CPU_ArchitectureType) {
-	case CPU_ARCHTYPE_MIXED:
-	case CPU_ARCHTYPE_386SLOW:
-	case CPU_ARCHTYPE_386FAST:
-	default:
-		return ((u1)==0) && ((u2)==0);
-	case CPU_ARCHTYPE_486OLD:
-	case CPU_ARCHTYPE_486NEW:
-	case CPU_ARCHTYPE_PENTIUM:
-		return ((u1)==0) || ((u2)==0);
-	}
+[[gnu::always_inline]] static inline bool InitPage_CheckUseraccess(Bitu u1, Bitu u2) {
+    switch (CPU_ArchitectureType) {
+    case CPU_ARCHTYPE_MIXED:
+    case CPU_ARCHTYPE_386SLOW:
+    case CPU_ARCHTYPE_386FAST:
+    default: return (u1 == 0) && (u2 == 0);
+    case CPU_ARCHTYPE_486OLD:
+    case CPU_ARCHTYPE_486NEW:
+    case CPU_ARCHTYPE_PENTIUM: return (u1 == 0) || (u2 == 0);
+    }
 }
 
+#if defined(USE_FULL_TLB)
 
 class InitPageHandler : public PageHandler {
 public:
@@ -643,230 +636,273 @@ bool PAGING_ForcePageInit(Bitu lin_addr) {
 	return false;
 }
 
+inline void PAGING_InitTLB(void) {
 #if defined(USE_FULL_TLB)
-void PAGING_InitTLB(void) {
-	for (Bitu i=0;i<TLB_SIZE;i++) {
-		paging.tlb.read[i]=0;
-		paging.tlb.write[i]=0;
-		paging.tlb.readhandler[i]=&init_page_handler;
-		paging.tlb.writehandler[i]=&init_page_handler;
-	}
-	paging.links.used=0;
+    std::memset(paging.tlb.read, 0, sizeof(HostPt) * TLB_SIZE);
+    std::memset(paging.tlb.write, 0, sizeof(HostPt) * TLB_SIZE);
+    std::fill_n(paging.tlb.readhandler, TLB_SIZE, &init_page_handler);
+    std::fill_n(paging.tlb.writehandler, TLB_SIZE, &init_page_handler);
+#else
+    InitTLBInt(paging.tlbh);
+#endif
+    paging.links.used = 0;
 }
 
-void PAGING_ClearTLB(void) {
-	Bit32u * entries=&paging.links.entries[0];
-	for (;paging.links.used>0;paging.links.used--) {
-		Bitu page=*entries++;
-		paging.tlb.read[page]=0;
-		paging.tlb.write[page]=0;
-		paging.tlb.readhandler[page]=&init_page_handler;
-		paging.tlb.writehandler[page]=&init_page_handler;
-	}
-	paging.links.used=0;
+[[gnu::hot]] void PAGING_ClearTLB(void) {
+    if (paging.links.used == 0) [[gnu::likely]] return;
+    Bit32u* entries = paging.links.entries;
+    Bitu count = paging.links.used;
+    paging.links.used = 0;
+#if defined(USE_FULL_TLB)
+    while (count--) {
+        Bitu page = *entries++;
+        paging.tlb.read[page] = 0;
+        paging.tlb.write[page] = 0;
+        paging.tlb.readhandler[page] = &init_page_handler;
+        paging.tlb.writehandler[page] = &init_page_handler;
+    }
+#else
+    while (count--) {
+        Bitu page = *entries++;
+        tlb_entry* entry = get_tlb_entry(page << 12);
+        entry->read = 0;
+        entry->write = 0;
+        entry->readhandler = &init_page_handler;
+        entry->writehandler = &init_page_handler;
+    }
+#endif
 }
 
-void PAGING_UnlinkPages(Bitu lin_page,Bitu pages) {
-	for (;pages>0;pages--) {
-		paging.tlb.read[lin_page]=0;
-		paging.tlb.write[lin_page]=0;
-		paging.tlb.readhandler[lin_page]=&init_page_handler;
-		paging.tlb.writehandler[lin_page]=&init_page_handler;
-		lin_page++;
-	}
+inline void PAGING_UnlinkPages(Bitu lin_page, Bitu pages) {
+    Bitu end = lin_page + pages;
+#if defined(USE_FULL_TLB)
+    for (; lin_page < end; ++lin_page) {
+        paging.tlb.read[lin_page] = 0;
+        paging.tlb.write[lin_page] = 0;
+        paging.tlb.readhandler[lin_page] = &init_page_handler;
+        paging.tlb.writehandler[lin_page] = &init_page_handler;
+    }
+#else
+    for (; lin_page < end; ++lin_page) {
+        tlb_entry* entry = get_tlb_entry(lin_page << 12);
+        entry->read = 0;
+        entry->write = 0;
+        entry->readhandler = &init_page_handler;
+        entry->writehandler = &init_page_handler;
+    }
+#endif
 }
 
-void PAGING_MapPage(Bitu lin_page,Bitu phys_page) {
-	if (lin_page<LINK_START) {
-		paging.firstmb[lin_page]=phys_page;
-		paging.tlb.read[lin_page]=0;
-		paging.tlb.write[lin_page]=0;
-		paging.tlb.readhandler[lin_page]=&init_page_handler;
-		paging.tlb.writehandler[lin_page]=&init_page_handler;
-	} else {
-		PAGING_LinkPage(lin_page,phys_page);
-	}
+inline void PAGING_MapPage(Bitu lin_page, Bitu phys_page) {
+    if (lin_page < LINK_START) [[gnu::likely]] {
+#if defined(USE_FULL_TLB)
+        paging.firstmb[lin_page] = phys_page;
+        paging.tlb.read[lin_page] = 0;
+        paging.tlb.write[lin_page] = 0;
+        paging.tlb.readhandler[lin_page] = &init_page_handler;
+        paging.tlb.writehandler[lin_page] = &init_page_handler;
+#else
+        paging.firstmb[lin_page] = phys_page;
+        paging.tlbh[lin_page].read = 0;
+        paging.tlbh[lin_page].write = 0;
+        paging.tlbh[lin_page].readhandler = &init_page_handler;
+        paging.tlbh[lin_page].writehandler = &init_page_handler;
+#endif
+    } else {
+        PAGING_LinkPage(lin_page, phys_page);
+    }
 }
 
-void PAGING_LinkPage(Bitu lin_page,Bitu phys_page) {
-	PageHandler * handler=MEM_GetPageHandler(phys_page);
-	Bitu lin_base=lin_page << 12;
-	if (lin_page>=TLB_SIZE || phys_page>=TLB_SIZE) 
-		E_Exit("Illegal page");
-
-	if (paging.links.used>=PAGING_LINKS) {
-		LOG(LOG_PAGING,LOG_NORMAL)("Not enough paging links, resetting cache");
-		PAGING_ClearTLB();
-	}
-
-	paging.tlb.phys_page[lin_page]=phys_page;
-	if (handler->flags & PFLAG_READABLE) paging.tlb.read[lin_page]=handler->GetHostReadPt(phys_page)-lin_base;
-	else paging.tlb.read[lin_page]=0;
-	if (handler->flags & PFLAG_WRITEABLE) paging.tlb.write[lin_page]=handler->GetHostWritePt(phys_page)-lin_base;
-	else paging.tlb.write[lin_page]=0;
-
-	paging.links.entries[paging.links.used++]=lin_page;
-	paging.tlb.readhandler[lin_page]=handler;
-	paging.tlb.writehandler[lin_page]=handler;
+[[gnu::hot]] void PAGING_LinkPage(Bitu lin_page, Bitu phys_page) {
+    PageHandler* handler = MEM_GetPageHandler(phys_page);
+    Bitu lin_base = lin_page << 12;
+#if defined(USE_FULL_TLB)
+    if (lin_page >= TLB_SIZE || phys_page >= TLB_SIZE) [[gnu::unlikely]]
+        E_Exit("Illegal page");
+    if (paging.links.used >= PAGING_LINKS) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("Not enough paging links, resetting cache");
+        PAGING_ClearTLB();
+    }
+    paging.tlb.phys_page[lin_page] = phys_page;
+    paging.tlb.read[lin_page] = (handler->flags & PFLAG_READABLE) ? handler->GetHostReadPt(phys_page) - lin_base : 0;
+    paging.tlb.write[lin_page] = (handler->flags & PFLAG_WRITEABLE) ? handler->GetHostWritePt(phys_page) - lin_base : 0;
+    paging.links.entries[paging.links.used++] = lin_page;
+    paging.tlb.readhandler[lin_page] = handler;
+    paging.tlb.writehandler[lin_page] = handler;
+#else
+    if (lin_page >= (TLB_SIZE * (TLB_BANKS + 1)) || phys_page >= (TLB_SIZE * (TLB_BANKS + 1))) [[gnu::unlikely]]
+        E_Exit("Illegal page");
+    if (paging.links.used >= PAGING_LINKS) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("Not enough paging links, resetting cache");
+        PAGING_ClearTLB();
+    }
+    tlb_entry* entry = get_tlb_entry(lin_base);
+    entry->phys_page = phys_page;
+    entry->read = (handler->flags & PFLAG_READABLE) ? handler->GetHostReadPt(phys_page) - lin_base : 0;
+    entry->write = (handler->flags & PFLAG_WRITEABLE) ? handler->GetHostWritePt(phys_page) - lin_base : 0;
+    paging.links.entries[paging.links.used++] = lin_page;
+    entry->readhandler = handler;
+    entry->writehandler = handler;
+#endif
 }
 
-void PAGING_LinkPage_ReadOnly(Bitu lin_page,Bitu phys_page) {
-	PageHandler * handler=MEM_GetPageHandler(phys_page);
-	Bitu lin_base=lin_page << 12;
-	if (lin_page>=TLB_SIZE || phys_page>=TLB_SIZE) 
-		E_Exit("Illegal page");
-
-	if (paging.links.used>=PAGING_LINKS) {
-		LOG(LOG_PAGING,LOG_NORMAL)("Not enough paging links, resetting cache");
-		PAGING_ClearTLB();
-	}
-
-	paging.tlb.phys_page[lin_page]=phys_page;
-	if (handler->flags & PFLAG_READABLE) paging.tlb.read[lin_page]=handler->GetHostReadPt(phys_page)-lin_base;
-	else paging.tlb.read[lin_page]=0;
-	paging.tlb.write[lin_page]=0;
-
-	paging.links.entries[paging.links.used++]=lin_page;
-	paging.tlb.readhandler[lin_page]=handler;
-	paging.tlb.writehandler[lin_page]=&init_page_handler_userro;
+[[gnu::hot]] void PAGING_LinkPage_ReadOnly(Bitu lin_page, Bitu phys_page) {
+    PageHandler* handler = MEM_GetPageHandler(phys_page);
+    Bitu lin_base = lin_page << 12;
+#if defined(USE_FULL_TLB)
+    if (lin_page >= TLB_SIZE || phys_page >= TLB_SIZE) [[gnu::unlikely]]
+        E_Exit("Illegal page");
+    if (paging.links.used >= PAGING_LINKS) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("Not enough paging links, resetting cache");
+        PAGING_ClearTLB();
+    }
+    paging.tlb.phys_page[lin_page] = phys_page;
+    paging.tlb.read[lin_page] = (handler->flags & PFLAG_READABLE) ? handler->GetHostReadPt(phys_page) - lin_base : 0;
+    paging.tlb.write[lin_page] = 0;
+    paging.links.entries[paging.links.used++] = lin_page;
+    paging.tlb.readhandler[lin_page] = handler;
+    paging.tlb.writehandler[lin_page] = &init_page_handler_userro;
+#else
+    if (lin_page >= (TLB_SIZE * (TLB_BANKS + 1)) || phys_page >= (TLB_SIZE * (TLB_BANKS + 1))) [[gnu::unlikely]]
+        E_Exit("Illegal page");
+    if (paging.links.used >= PAGING_LINKS) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("Not enough paging links, resetting cache");
+        PAGING_ClearTLB();
+    }
+    tlb_entry* entry = get_tlb_entry(lin_base);
+    entry->phys_page = phys_page;
+    entry->read = (handler->flags & PFLAG_READABLE) ? handler->GetHostReadPt(phys_page) - lin_base : 0;
+    entry->write = 0;
+    paging.links.entries[paging.links.used++] = lin_page;
+    entry->readhandler = handler;
+    entry->writehandler = &init_page_handler_userro;
+#endif
 }
 
 #else
 
-static INLINE void InitTLBInt(tlb_entry *bank) {
- 	for (Bitu i=0;i<TLB_SIZE;i++) {
-		bank[i].read=0;
-		bank[i].write=0;
-		bank[i].readhandler=&init_page_handler;
-		bank[i].writehandler=&init_page_handler;
- 	}
+[[gnu::always_inline]] static inline void InitTLBInt(tlb_entry* bank) {
+    std::memset(bank, 0, sizeof(tlb_entry) * TLB_SIZE);  // Zero out read/write/phys_page
+    std::fill_n(&bank->readhandler, TLB_SIZE, &init_page_handler);  // Set handlers
+    std::fill_n(&bank->writehandler, TLB_SIZE, &init_page_handler);
 }
 
-void PAGING_InitTLBBank(tlb_entry **bank) {
-	*bank = (tlb_entry *)malloc(sizeof(tlb_entry)*TLB_SIZE);
-	if(!*bank) E_Exit("Out of Memory");
-	InitTLBInt(*bank);
+[[gnu::always_inline]] void PAGING_InitTLBBank(tlb_entry** bank) {
+    *bank = static_cast<tlb_entry*>(malloc(sizeof(tlb_entry) * TLB_SIZE));
+    if (!*bank) [[gnu::unlikely]] E_Exit("Out of Memory");
+    InitTLBInt(*bank);
 }
 
-void PAGING_InitTLB(void) {
-	InitTLBInt(paging.tlbh);
- 	paging.links.used=0;
+[[gnu::always_inline]] void PAGING_InitTLB(void) {
+    InitTLBInt(paging.tlbh);
+    paging.links.used = 0;
 }
 
-void PAGING_ClearTLB(void) {
-	Bit32u * entries=&paging.links.entries[0];
-	for (;paging.links.used>0;paging.links.used--) {
-		Bitu page=*entries++;
-		tlb_entry *entry = get_tlb_entry(page<<12);
-		entry->read=0;
-		entry->write=0;
-		entry->readhandler=&init_page_handler;
-		entry->writehandler=&init_page_handler;
-	}
-	paging.links.used=0;
+[[gnu::always_inline]] void PAGING_ClearTLB(void) {
+    if (paging.links.used == 0) [[gnu::likely]] return;  // Early exit
+    Bit32u* entries = paging.links.entries;
+    Bitu count = paging.links.used;
+    paging.links.used = 0;
+    while (count--) {
+        Bitu page = *entries++;
+        tlb_entry* entry = get_tlb_entry(page << 12);
+        entry->read = 0;
+        entry->write = 0;
+        entry->readhandler = &init_page_handler;
+        entry->writehandler = &init_page_handler;
+    }
 }
 
-void PAGING_UnlinkPages(Bitu lin_page,Bitu pages) {
-	for (;pages>0;pages--) {
-		tlb_entry *entry = get_tlb_entry(lin_page<<12);
-		entry->read=0;
-		entry->write=0;
-		entry->readhandler=&init_page_handler;
-		entry->writehandler=&init_page_handler;
-		lin_page++;
-	}
+[[gnu::always_inline]] void PAGING_UnlinkPages(Bitu lin_page, Bitu pages) {
+    Bitu end = lin_page + pages;
+    for (; lin_page < end; ++lin_page) {
+        tlb_entry* entry = get_tlb_entry(lin_page << 12);
+        entry->read = 0;
+        entry->write = 0;
+        entry->readhandler = &init_page_handler;
+        entry->writehandler = &init_page_handler;
+    }
 }
 
-void PAGING_MapPage(Bitu lin_page,Bitu phys_page) {
-	if (lin_page<LINK_START) {
-		paging.firstmb[lin_page]=phys_page;
-		paging.tlbh[lin_page].read=0;
-		paging.tlbh[lin_page].write=0;
-		paging.tlbh[lin_page].readhandler=&init_page_handler;
-		paging.tlbh[lin_page].writehandler=&init_page_handler;
-	} else {
-		PAGING_LinkPage(lin_page,phys_page);
-	}
+[[gnu::always_inline]] void PAGING_MapPage(Bitu lin_page, Bitu phys_page) {
+    if (lin_page < LINK_START) [[gnu::likely]] {
+        paging.firstmb[lin_page] = phys_page;
+        paging.tlbh[lin_page].read = 0;
+        paging.tlbh[lin_page].write = 0;
+        paging.tlbh[lin_page].readhandler = &init_page_handler;
+        paging.tlbh[lin_page].writehandler = &init_page_handler;
+    } else {
+        PAGING_LinkPage(lin_page, phys_page);
+    }
 }
 
-void PAGING_LinkPage(Bitu lin_page,Bitu phys_page) {
-	PageHandler * handler=MEM_GetPageHandler(phys_page);
-	Bitu lin_base=lin_page << 12;
-	if (lin_page>=(TLB_SIZE*(TLB_BANKS+1)) || phys_page>=(TLB_SIZE*(TLB_BANKS+1))) 
-		E_Exit("Illegal page");
-
-	if (paging.links.used>=PAGING_LINKS) {
-		LOG(LOG_PAGING,LOG_NORMAL)("Not enough paging links, resetting cache");
-		PAGING_ClearTLB();
-	}
-
-	tlb_entry *entry = get_tlb_entry(lin_base);
-	entry->phys_page=phys_page;
-	if (handler->flags & PFLAG_READABLE) entry->read=handler->GetHostReadPt(phys_page)-lin_base;
-	else entry->read=0;
-	if (handler->flags & PFLAG_WRITEABLE) entry->write=handler->GetHostWritePt(phys_page)-lin_base;
-	else entry->write=0;
-
- 	paging.links.entries[paging.links.used++]=lin_page;
-	entry->readhandler=handler;
-	entry->writehandler=handler;
+[[gnu::always_inline]] void PAGING_LinkPage(Bitu lin_page, Bitu phys_page) {
+    PageHandler* handler = MEM_GetPageHandler(phys_page);
+    Bitu lin_base = lin_page << 12;
+    if (lin_page >= (TLB_SIZE * (TLB_BANKS + 1)) || phys_page >= (TLB_SIZE * (TLB_BANKS + 1))) [[gnu::unlikely]]
+        E_Exit("Illegal page");
+    if (paging.links.used >= PAGING_LINKS) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("Not enough paging links, resetting cache");
+        PAGING_ClearTLB();
+    }
+    tlb_entry* entry = get_tlb_entry(lin_base);
+    entry->phys_page = phys_page;
+    entry->read = (handler->flags & PFLAG_READABLE) ? handler->GetHostReadPt(phys_page) - lin_base : 0;
+    entry->write = (handler->flags & PFLAG_WRITEABLE) ? handler->GetHostWritePt(phys_page) - lin_base : 0;
+    paging.links.entries[paging.links.used++] = lin_page;
+    entry->readhandler = handler;
+    entry->writehandler = handler;
 }
 
-void PAGING_LinkPage_ReadOnly(Bitu lin_page,Bitu phys_page) {
-	PageHandler * handler=MEM_GetPageHandler(phys_page);
-	Bitu lin_base=lin_page << 12;
-	if (lin_page>=(TLB_SIZE*(TLB_BANKS+1)) || phys_page>=(TLB_SIZE*(TLB_BANKS+1))) 
-		E_Exit("Illegal page");
-
-	if (paging.links.used>=PAGING_LINKS) {
-		LOG(LOG_PAGING,LOG_NORMAL)("Not enough paging links, resetting cache");
-		PAGING_ClearTLB();
-	}
-
-	tlb_entry *entry = get_tlb_entry(lin_base);
-	entry->phys_page=phys_page;
-	if (handler->flags & PFLAG_READABLE) entry->read=handler->GetHostReadPt(phys_page)-lin_base;
-	else entry->read=0;
-	entry->write=0;
-
- 	paging.links.entries[paging.links.used++]=lin_page;
-	entry->readhandler=handler;
-	entry->writehandler=&init_page_handler_userro;
+[[gnu::always_inline]] void PAGING_LinkPage_ReadOnly(Bitu lin_page, Bitu phys_page) {
+    PageHandler* handler = MEM_GetPageHandler(phys_page);
+    Bitu lin_base = lin_page << 12;
+    if (lin_page >= (TLB_SIZE * (TLB_BANKS + 1)) || phys_page >= (TLB_SIZE * (TLB_BANKS + 1))) [[gnu::unlikely]]
+        E_Exit("Illegal page");
+    if (paging.links.used >= PAGING_LINKS) [[gnu::unlikely]] {
+        LOG(LOG_PAGING, LOG_NORMAL)("Not enough paging links, resetting cache");
+        PAGING_ClearTLB();
+    }
+    tlb_entry* entry = get_tlb_entry(lin_base);
+    entry->phys_page = phys_page;
+    entry->read = (handler->flags & PFLAG_READABLE) ? handler->GetHostReadPt(phys_page) - lin_base : 0;
+    entry->write = 0;
+    paging.links.entries[paging.links.used++] = lin_page;
+    entry->readhandler = handler;
+    entry->writehandler = &init_page_handler_userro;
 }
 
 #endif
 
 
-void PAGING_SetDirBase(Bitu cr3) {
-	paging.cr3=cr3;
-	
-	paging.base.page=cr3 >> 12;
-	paging.base.addr=cr3 & ~4095;
-//	LOG(LOG_PAGING,LOG_NORMAL)("CR3:%X Base %X",cr3,paging.base.page);
-	if (paging.enabled) {
-		PAGING_ClearTLB();
-	}
+inline void PAGING_SetDirBase(Bitu cr3) {
+    paging.cr3 = cr3;
+    paging.base.page = cr3 >> 12;
+    paging.base.addr = cr3 & ~4095;
+    if (paging.enabled) [[gnu::likely]] {
+        PAGING_ClearTLB();
+    }
 }
 
-void PAGING_Enable(bool enabled) {
-	/* If paging is disabled, we work from a default paging table */
-	if (paging.enabled==enabled) return;
-	paging.enabled=enabled;
-	if (enabled) {
-		if (GCC_UNLIKELY(cpudecoder==CPU_Core_Simple_Run)) {
-//			LOG_MSG("CPU core simple won't run this game,switching to normal");
-			cpudecoder=CPU_Core_Normal_Run;
-			CPU_CycleLeft+=CPU_Cycles;
-			CPU_Cycles=0;
-		}
-//		LOG(LOG_PAGING,LOG_NORMAL)("Enabled");
-		PAGING_SetDirBase(paging.cr3);
-	}
-	PAGING_ClearTLB();
+inline void PAGING_Enable(bool enabled) {
+    if (paging.enabled == enabled) [[gnu::likely]] return;
+    paging.enabled = enabled;
+    if (enabled) [[gnu::unlikely]] {
+        if (cpudecoder == CPU_Core_Simple_Run) [[gnu::unlikely]] {
+            cpudecoder = CPU_Core_Normal_Run;
+            CPU_CycleLeft += CPU_Cycles;
+            CPU_Cycles = 0;
+        }
+        PAGING_SetDirBase(paging.cr3);  // Inlined call already, no further speedup here
+    } else {
+        // When disabling, we could optimize by resetting only necessary TLB entries,
+        // but full clear is required for correctness in DOSBox
+        PAGING_ClearTLB();
+    }
 }
 
-bool PAGING_Enabled(void) {
-	return paging.enabled;
+[[gnu::always_inline]] bool PAGING_Enabled(void) {
+    return paging.enabled;  // Already optimal: single memory access
 }
 
 class PAGING:public Module_base{
