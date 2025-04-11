@@ -395,7 +395,10 @@ public:
 #if defined(VITA)
             strcpy(buffer,"ux0:/data/retroarch/");
 #else
-            getcwd(buffer,CROSS_LEN);
+            char* result = getcwd(buffer, CROSS_LEN);
+			if (!result) {
+    			// Handle error if needed, e.g., LOG_MSG("Failed to get current directory");
+			}
 #endif
 				strcat(buffer,cross_filesplit);
 				strcat(buffer,line.c_str());

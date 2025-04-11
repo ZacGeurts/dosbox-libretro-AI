@@ -203,7 +203,7 @@ void DOS_Shell::CMD_DELETE(char * args) {
 		WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),args);
 		return;
 	}
-	sprintf(sargs,"\"%s\"",spath);
+	snprintf(sargs, sizeof(sargs), "\"%s\"", spath);
 	bool res=DOS_FindFirst(sargs,0xffff & ~DOS_ATTR_VOLUME);
 	if (!res) {
 		WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),args);
