@@ -1,5 +1,6 @@
 # DOSBOXY <BR />
 Up to 300% speed update so far. <BR />
+The buildbot may not be using dynrec so it may only be like 30% update. <BR />
 Press space bar to run the emulator full speed. <BR />
 You can view the framerate and other setting in Config - On screen Notifications - Notification Visibility <BR />
 One of the updates changed endian so PowerPC is unlikely to work any longer with this build. <BR />
