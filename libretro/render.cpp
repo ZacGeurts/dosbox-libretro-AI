@@ -354,7 +354,7 @@ forcenormal:
 		render.scale.cachePitch = render.src.width * 4;
 		break;
 	default:
-		E_Exit("RENDER:Wrong source bpp %d", render.src.bpp );
+		E_Exit("RENDER:Wrong source bpp %lu", static_cast<unsigned long>(render.src.bpp));
 	}
 	render.scale.blocks = render.src.width / SCALER_BLOCKSIZE;
 	render.scale.lastBlock = render.src.width % SCALER_BLOCKSIZE;
@@ -413,7 +413,7 @@ static void IncreaseFrameSkip(bool pressed) {
 	if (!pressed)
 		return;
 	if (render.frameskip.max<10) render.frameskip.max++;
-	LOG_MSG("Frame Skip at %d",render.frameskip.max);
+	LOG_MSG("Frame Skip at %lu", static_cast<unsigned long>(render.frameskip.max));
 	GFX_SetTitle(-1,render.frameskip.max,false);
 }
 
@@ -421,7 +421,7 @@ static void DecreaseFrameSkip(bool pressed) {
 	if (!pressed)
 		return;
 	if (render.frameskip.max>0) render.frameskip.max--;
-	LOG_MSG("Frame Skip at %d",render.frameskip.max);
+	LOG_MSG("Frame Skip at %lu", static_cast<unsigned long>(render.frameskip.max));
 	GFX_SetTitle(-1,render.frameskip.max,false);
 }
 
