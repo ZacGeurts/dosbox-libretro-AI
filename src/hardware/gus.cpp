@@ -652,7 +652,7 @@ static Bitu read_gus(Bitu port,Bitu iolen) {
 		}
 	default:
 #if LOG_GUS
-		LOG_MSG("Read GUS at port 0x%x", port);
+		LOG_MSG("Read GUS at port 0x%lx", port);
 #endif
 		break;
 	}
@@ -734,7 +734,7 @@ static void write_gus(Bitu port,Bitu val,Bitu iolen) {
 		break;
 	default:
 #if LOG_GUS
-		LOG_MSG("Write GUS at port 0x%x with %x", port, val);
+		LOG_MSG("Write GUS at port 0x%lx with %lx", port, val);
 #endif
 		break;
 	}

@@ -1137,7 +1137,7 @@ bool CSerial::getBituSubstring(const char* name,Bitu* data, CommandLine* cmd) {
 	std::string tmpstring;
 	if(!(cmd->FindStringBegin(name,tmpstring,false))) return false;
 	const char* tmpchar=tmpstring.c_str();
-	if(sscanf(tmpchar,"%u",data)!=1) return false;
+	if(sscanf(tmpchar,"%lu",data)!=1) return false;
 	return true;
 }
 
@@ -1261,7 +1261,7 @@ public:
 				serialports[i] = NULL;
 			} else {
 				serialports[i] = NULL;
-				LOG_MSG("Invalid type for serial%d",i+1);
+				LOG_MSG("Invalid type for serial%ld",i+1);
 			}
 			if(serialports[i]) biosParameter[i] = serial_baseaddr[i];
 		} // for 1-4

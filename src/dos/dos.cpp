@@ -1560,7 +1560,7 @@ static Bitu DOS_21Handler(void) {
 							mtime=DOS_PackTime((Bit16u)ltime->tm_hour,(Bit16u)ltime->tm_min,(Bit16u)ltime->tm_sec);
 							mdate=DOS_PackDate((Bit16u)(ltime->tm_year+1900),(Bit16u)(ltime->tm_mon+1),(Bit16u)ltime->tm_mday);
 						}
-						sprintf(buf,"%-4s%-4s%-4s%-4s%-4s%-4s%-4s%-4s%-4s%-4s%-4s%-4s%-4s",&st,&ctime,&cdate,&atime,&adate,&mtime,&mdate,&serial_number,&st,&st,&st,&st,&handle);
+						sprintf(buf, "%4u%4u%4u%4u%4u%4u%4u%4u%4u%4u%4u%4u%4u", st, ctime, cdate, atime, adate, mtime, mdate, serial_number, st, st, st, st, handle);
 						for (int i=32;i<36;i++) buf[i]=0;
 						buf[36]=(char)((Bit32u)status.st_size%256);
 						buf[37]=(char)(((Bit32u)status.st_size%65536)/256);

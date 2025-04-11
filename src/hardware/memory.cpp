@@ -562,7 +562,7 @@ public:
 		}
 		MemBase = new Bit8u[memsize*1024*1024];
 		g_memsize = memsize*1024*1024 ;
-		if (!MemBase) E_Exit("Can't allocate main memory of %d MB",memsize);
+		if (!MemBase) E_Exit("Can't allocate main memory of %ld MB",memsize);
 		/* Clear the memory, as new doesn't always give zeroed memory
 		 * (Visual C debug mode). We want zeroed memory though. */
 		memset((void*)MemBase,0,memsize*1024*1024);
