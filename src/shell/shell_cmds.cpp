@@ -180,52 +180,52 @@ void DOS_Shell::CMD_CLS(char * args) {
 }
 
 void DOS_Shell::CMD_DELETE(char * args) {
-	HELP("DELETE");
-	/* Command uses dta so set it to our internal dta */
-	RealPt save_dta=dos.dta();
-	dos.dta(dos.tables.tempdta);
+    HELP("DELETE");
+    /* Command uses dta so set it to our internal dta */
+    RealPt save_dta=dos.dta();
+    dos.dta(dos.tables.tempdta);
 
-	char * rem=ScanCMDRemain(args);
-	if (rem) {
-		WriteOut(MSG_Get("SHELL_ILLEGAL_SWITCH"),rem);
-		return;
-	}
-	/* If delete accept switches mind the space infront of them. See the dir /p code */ 
+    char * rem=ScanCMDRemain(args);
+    if (rem) {
+        WriteOut(MSG_Get("SHELL_ILLEGAL_SWITCH"),rem);
+        return;
+    }
+    /* If delete accept switches mind the space infront of them. See the dir /p code */ 
 
-	char full[DOS_PATHLENGTH],sfull[DOS_PATHLENGTH+2];
-	char buffer[CROSS_LEN];
-	args = ExpandDot(args,buffer);
-	StripSpaces(args);
-	if (!DOS_Canonicalize(args,full)) { WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));return; }
-//TODO Maybe support confirmation for *.* like dos does.	
-	char spath[DOS_PATHLENGTH],sargs[DOS_PATHLENGTH];
-	if (!DOS_GetSFNPath(args,spath,false)) {
-		WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),args);
-		return;
-	}
-	snprintf(sargs, sizeof(sargs), "\"%s\"", spath);
-	bool res=DOS_FindFirst(sargs,0xffff & ~DOS_ATTR_VOLUME);
-	if (!res) {
-		WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),args);
-		dos.dta(save_dta);
-		return;
-	}
-	//end can't be 0, but if it is we'll get a nice crash, who cares :)
-	char * end=strrchr(full,'\\')+1;*end=0;
-	char name[DOS_NAMELENGTH_ASCII],lname[LFN_NAMELENGTH+1];
-	Bit32u size;Bit16u time,date;Bit8u attr;
-	DOS_DTA dta(dos.dta());
-	while (res) {
-		dta.GetResult(name,lname,size,date,time,attr);	
-		if (!(attr & (DOS_ATTR_DIRECTORY|DOS_ATTR_READ_ONLY))) {
-			strcpy(end,name);
-			strcpy(sfull,full);
-			if (uselfn) sprintf(sfull,"\"%s\"",full);
-			if (!DOS_UnlinkFile(sfull)) WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),full);
-		}
-		res=DOS_FindNext();
-	}
-	dos.dta(save_dta);
+    char full[DOS_PATHLENGTH],sfull[DOS_PATHLENGTH+2];
+    char buffer[CROSS_LEN];
+    args = ExpandDot(args,buffer);
+    StripSpaces(args);
+    if (!DOS_Canonicalize(args,full)) { WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));return; }
+    //TODO Maybe support confirmation for *.* like dos does.    
+    char spath[DOS_PATHLENGTH],sargs[260];
+    if (!DOS_GetSFNPath(args,spath,false)) {
+        WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),args);
+        return;
+    }
+    snprintf(sargs, sizeof(sargs), "\"%s\"", spath);
+    bool res=DOS_FindFirst(sargs,0xffff & ~DOS_ATTR_VOLUME);
+    if (!res) {
+        WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),args);
+        dos.dta(save_dta);
+        return;
+    }
+    //end can't be 0, but if it is we'll get a nice crash, who cares :)
+    char * end=strrchr(full,'\\')+1;*end=0;
+    char name[DOS_NAMELENGTH_ASCII],lname[LFN_NAMELENGTH+1];
+    Bit32u size;Bit16u time,date;Bit8u attr;
+    DOS_DTA dta(dos.dta());
+    while (res) {
+        dta.GetResult(name,lname,size,date,time,attr);    
+        if (!(attr & (DOS_ATTR_DIRECTORY|DOS_ATTR_READ_ONLY))) {
+            strcpy(end,name);
+            strcpy(sfull,full);
+            if (uselfn) sprintf(sfull,"\"%s\"",full);
+            if (!DOS_UnlinkFile(sfull)) WriteOut(MSG_Get("SHELL_CMD_DEL_ERROR"),full);
+        }
+        res=DOS_FindNext();
+    }
+    dos.dta(save_dta);
 }
 
 void DOS_Shell::CMD_HELP(char * args){
