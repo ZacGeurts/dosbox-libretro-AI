@@ -693,7 +693,7 @@ inline void PAGING_UnlinkPages(Bitu lin_page, Bitu pages) {
 #endif
 }
 
-inline void PAGING_MapPage(Bitu lin_page, Bitu phys_page) {
+__attribute__((visibility("default"))) void PAGING_MapPage(Bitu lin_page, Bitu phys_page) {
     if (lin_page < LINK_START) [[gnu::likely]] {
 #if defined(USE_FULL_TLB)
         paging.firstmb[lin_page] = phys_page;
@@ -884,7 +884,7 @@ inline void PAGING_SetDirBase(Bitu cr3) {
     }
 }
 
-inline void PAGING_Enable(bool enabled) {
+void PAGING_Enable(bool enabled) {
     if (paging.enabled == enabled) [[gnu::likely]] return;
     paging.enabled = enabled;
     if (enabled) [[gnu::unlikely]] {
@@ -901,7 +901,7 @@ inline void PAGING_Enable(bool enabled) {
     }
 }
 
-[[gnu::always_inline]] bool PAGING_Enabled(void) {
+bool PAGING_Enabled(void) {
     return paging.enabled;  // Already optimal: single memory access
 }
 
