@@ -21,6 +21,7 @@
 #define DOSBOX_SETUP_H
 
 #include <stdio.h>
+#include <string>
 
 #ifdef _MSC_VER
 #pragma warning ( disable : 4786 )
@@ -47,7 +48,6 @@
 #define CH_CSTDIO
 #include <cstdio>
 #endif
-
 
 class Hex {
 private:
@@ -91,26 +91,28 @@ public:
 	Value(std::string const& in,Etype _t) :_hex(0),_bool(false),_int(0),_string(0),_double(0),type(V_NONE) {SetValue(in,_t);}
 	
 	/* Assigment operators */
-	Value& operator= (Hex in) throw(WrongType)                { return copy(Value(in));}
-	Value& operator= (int in) throw(WrongType)                { return copy(Value(in));}
-	Value& operator= (bool in) throw(WrongType)               { return copy(Value(in));}
-	Value& operator= (double in) throw(WrongType)             { return copy(Value(in));}
-	Value& operator= (std::string const& in) throw(WrongType) { return copy(Value(in));}
-	Value& operator= (char const * const in) throw(WrongType) { return copy(Value(in));}
-	Value& operator= (Value const& in) throw(WrongType)       { return copy(Value(in));}
+	// In include/setup.h, starting at line 94
+Value& operator= (Hex in) noexcept { return copy(Value(in)); }
+Value& operator= (int in) noexcept { return copy(Value(in)); }
+Value& operator= (bool in) noexcept { return copy(Value(in)); }
+Value& operator= (double in) noexcept { return copy(Value(in)); }
+Value& operator= (std::string const& in) noexcept { return copy(Value(in)); }
+Value& operator= (char const * const in) noexcept { return copy(Value(in)); }
+Value& operator= (Value const& in) noexcept { return copy(Value(in)); }
 
-	bool operator== (Value const & other);
-	operator bool () const throw(WrongType);
-	operator Hex () const throw(WrongType);
-	operator int () const throw(WrongType);
-	operator double () const throw(WrongType);
-	operator char const* () const throw(WrongType);
-	bool SetValue(std::string const& in,Etype _type = V_CURRENT) throw(WrongType);
-	std::string ToString() const;
+operator bool () const noexcept;
+operator Hex () const noexcept;
+operator int () const noexcept;
+operator double () const noexcept;
+operator char const* () const noexcept;
+bool SetValue(std::string const& in, Etype _type = V_CURRENT) noexcept;
+
+Value& copy(Value const& in) noexcept;
+std::string ToString() const;
+bool operator==(const Value& other) const;
 
 private:
 	void destroy() throw();
-	Value& copy(Value const& in) throw(WrongType);
 	void plaincopy(Value const& in) throw();
 	bool set_hex(std::string const& in);
 	bool set_int(std::string const&in);
