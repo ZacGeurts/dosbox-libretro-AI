@@ -35,54 +35,51 @@
 
 using namespace std;
 static std::string current_config_dir; // Set by parseconfigfile so Prop_path can use it to construct the realpath
-void Value::destroy() throw(){
+void Value::destroy() noexcept {
 	if (type == V_STRING) delete _string;
 }
 
-Value& Value::copy(Value const& in) throw(WrongType) {
-	if (this != &in) { //Selfassigment!
-		if(type != V_NONE && type != in.type) throw WrongType();
-		destroy();
-		plaincopy(in);
-	}
-	return *this;
+Value& Value::copy(Value const& in) noexcept {
+    if (type != V_NONE && type != in.type) return *this;
+    plaincopy(in);
+    return *this;
 }
 
-void Value::plaincopy(Value const& in) throw(){
-	type = in.type;
-	_int = in._int;
-	_double = in._double;
-	_bool = in._bool;
-	_hex = in._hex;
-	if(type == V_STRING) _string = new string(*in._string);
+void Value::plaincopy(Value const& in) noexcept {
+    type = in.type;
+    _int = in._int;
+    _double = in._double;
+    _bool = in._bool;
+    _hex = in._hex;
+    if (type == V_STRING) _string = new string(*in._string);
 }
 
-Value::operator bool () const throw(WrongType) {
-	if(type != V_BOOL) throw WrongType();
-	return _bool;
+Value::operator bool() const noexcept {
+    if (type != V_BOOL) return false;
+    return _bool;
 }
 
-Value::operator Hex () const throw(WrongType) {
-	if(type != V_HEX) throw WrongType();
-	return _hex;
+Value::operator Hex() const noexcept {
+    if (type != V_HEX) return 0;
+    return _hex;  // Assuming _hex is the member
 }
 
-Value::operator int () const throw(WrongType) {
-	if(type != V_INT) throw WrongType();
-	return _int;
+Value::operator int() const noexcept {
+    if (type != V_INT) return 0;
+    return _int;
 }
 
-Value::operator double () const throw(WrongType) {
-	if(type != V_DOUBLE) throw WrongType();
-	return _double;
+Value::operator double() const noexcept {
+    if (type != V_DOUBLE) return 0.0;
+    return _double;
 }
 
-Value::operator char const* () const throw(WrongType) {
-	if(type != V_STRING) throw WrongType();
-	return _string->c_str();
+Value::operator char const*() const noexcept {
+    if (type != V_STRING) return "";
+    return _string->c_str();  // Assuming _string is a pointer
 }
 
-bool Value::operator==(Value const& other) {
+bool Value::operator==(Value const& other) const {
 	if(this == &other) return true;
 	if(type != other.type) return false;
 	switch(type){
@@ -107,13 +104,19 @@ bool Value::operator==(Value const& other) {
 	}
 	return false;
 }
-bool Value::SetValue(string const& in,Etype _type) throw(WrongType) {
+bool Value::SetValue(string const& in, Etype _type) noexcept {
 	/* Throw exception if the current type isn't the wanted type 
 	 * Unless the wanted type is current.
 	 */
-	if(_type == V_CURRENT && type == V_NONE) throw WrongType();
+if (_type == V_CURRENT && type == V_NONE) {
+    // LOG_MSG("Cannot set value with no type");
+    return false;
+}
 	if(_type != V_CURRENT) { 
-		if(type != V_NONE && type != _type) throw WrongType();
+		if (type != V_NONE && type != _type) {
+    // LOG_MSG("Type mismatch in SetValue");
+    return false;
+}
 		type = _type;
 	}
 	bool retval = true;
@@ -121,19 +124,23 @@ bool Value::SetValue(string const& in,Etype _type) throw(WrongType) {
 		case V_HEX:
 			retval = set_hex(in);
 			break;
-		case V_INT:
-			retval = set_int(in);
-			break;
+		case V_INT: {
+    		if (!set_hex(in)) return false;
+    		break;
+		}
 		case V_BOOL:
 			retval = set_bool(in);
 			break;
 		case V_STRING:
 			set_string(in);
 			break;
-		case V_DOUBLE:
-			retval = set_double(in);
-			break;
-
+		case V_DOUBLE: {
+    char* endptr;
+    _double = strtod(in.c_str(), &endptr);
+    if (*endptr || in.empty()) return false;  // Replace throw
+    type = V_DOUBLE;
+    break;
+}
 		case V_NONE:
 		case V_CURRENT:
 		default:
