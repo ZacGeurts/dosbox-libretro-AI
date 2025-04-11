@@ -89,182 +89,182 @@ struct MODE_INFO{
 #pragma pack()
 #endif
 
+Bit8u VESA_GetSVGAInformation(Bit16u seg, Bit16u off) {
+    PhysPt buffer = PhysMake(seg, off);
+    Bit16u vbe2_pos = 256 + off;
+    bool vbe2 = ((mem_readd(buffer) | 0x20202020) == 0x56424532) && !int10.vesa_oldvbe;  // Fast ID check with case normalization
 
+    // Zero buffer inline based on VBE version
+    PhysPt end = buffer + (vbe2 ? 0x200 : 0x100);
+    for (PhysPt p = buffer; p < end; p++) mem_writeb(p, 0);
 
-Bit8u VESA_GetSVGAInformation(Bit16u seg,Bit16u off) {
-	/* Fill 256 byte buffer with VESA information */
-	PhysPt buffer=PhysMake(seg,off);
-	Bitu i;
-	bool vbe2=false;Bit16u vbe2_pos=256+off;
-	Bitu id=mem_readd(buffer);
-	if (((id==0x56424532)||(id==0x32454256)) && (!int10.vesa_oldvbe)) vbe2=true;
-	if (vbe2) {
-		for (i=0;i<0x200;i++) mem_writeb(buffer+i,0);		
-	} else {
-		for (i=0;i<0x100;i++) mem_writeb(buffer+i,0);
-	}
-	/* Fill common data */
-	MEM_BlockWrite(buffer,(void *)"VESA",4);				//Identification
-	if (!int10.vesa_oldvbe) mem_writew(buffer+0x04,0x200);	//Vesa version 2.0
-	else mem_writew(buffer+0x04,0x102);						//Vesa version 1.2
-	if (vbe2) {
-		mem_writed(buffer+0x06,RealMake(seg,vbe2_pos));
-		for (i=0;i<sizeof(string_oem);i++) real_writeb(seg,vbe2_pos++,string_oem[i]);
-		mem_writew(buffer+0x14,0x200);					//VBE 2 software revision
-		mem_writed(buffer+0x16,RealMake(seg,vbe2_pos));
-		for (i=0;i<sizeof(string_vendorname);i++) real_writeb(seg,vbe2_pos++,string_vendorname[i]);
-		mem_writed(buffer+0x1a,RealMake(seg,vbe2_pos));
-		for (i=0;i<sizeof(string_productname);i++) real_writeb(seg,vbe2_pos++,string_productname[i]);
-		mem_writed(buffer+0x1e,RealMake(seg,vbe2_pos));
-		for (i=0;i<sizeof(string_productrev);i++) real_writeb(seg,vbe2_pos++,string_productrev[i]);
-	} else {
-		mem_writed(buffer+0x06,int10.rom.oemstring);	//Oemstring
-	}
-	mem_writed(buffer+0x0a,0x0);					//Capabilities and flags
-	mem_writed(buffer+0x0e,int10.rom.vesa_modes);	//VESA Mode list
-	mem_writew(buffer+0x12,(Bit16u)(vga.vmemsize/(64*1024))); // memory size in 64kb blocks
-	return VESA_SUCCESS;
+    // Precomputed constants
+    static const char vesa_id[] = "VESA";
+    Bit16u vesa_version = int10.vesa_oldvbe ? 0x102 : 0x200;
+    Bit16u mem_size = static_cast<Bit16u>(vga.vmemsize / (64 * 1024));
+
+    // Write common data directly
+    MEM_BlockWrite(buffer, vesa_id, 4);
+    mem_writew(buffer + 0x04, vesa_version);
+    mem_writed(buffer + 0x0a, 0x0);              // Capabilities and flags
+    mem_writed(buffer + 0x0e, int10.rom.vesa_modes);
+    mem_writew(buffer + 0x12, mem_size);
+
+    // VBE2-specific data
+    if (vbe2) {
+        RealPt base = RealMake(seg, vbe2_pos);
+        mem_writed(buffer + 0x06, base);
+        MEM_BlockWrite(PhysMake(seg, vbe2_pos), string_oem, sizeof(string_oem) - 1);
+        vbe2_pos += sizeof(string_oem) - 1;
+
+        mem_writew(buffer + 0x14, 0x200);
+        mem_writed(buffer + 0x16, RealMake(seg, vbe2_pos));
+        MEM_BlockWrite(PhysMake(seg, vbe2_pos), string_vendorname, sizeof(string_vendorname) - 1);
+        vbe2_pos += sizeof(string_vendorname) - 1;
+
+        mem_writed(buffer + 0x1a, RealMake(seg, vbe2_pos));
+        MEM_BlockWrite(PhysMake(seg, vbe2_pos), string_productname, sizeof(string_productname) - 1);
+        vbe2_pos += sizeof(string_productname) - 1;
+
+        mem_writed(buffer + 0x1e, RealMake(seg, vbe2_pos));
+        MEM_BlockWrite(PhysMake(seg, vbe2_pos), string_productrev, sizeof(string_productrev) - 1);
+    } else {
+        mem_writed(buffer + 0x06, int10.rom.oemstring);
+    }
+
+    return VESA_SUCCESS;
 }
 
-Bit8u VESA_GetSVGAModeInformation(Bit16u mode,Bit16u seg,Bit16u off) {
-	MODE_INFO minfo;
-	memset(&minfo,0,sizeof(minfo));
-	PhysPt buf=PhysMake(seg,off);
-	Bitu pageSize;
-	Bit8u modeAttributes;
-	Bitu i=0;
+Bit8u VESA_GetSVGAModeInformation(Bit16u mode, Bit16u seg, Bit16u off) {
+    PhysPt buf = PhysMake(seg, off);
+    mode &= 0x3fff;  // Mask early to avoid repeated operations
+    if (mode < 0x100) return 0x01;
 
-	mode&=0x3fff;	// vbe2 compatible, ignore lfb and keep screen content bits
-	if (mode<0x100) return 0x01;
-	if (svga.accepts_mode) {
-		if (!svga.accepts_mode(mode)) return 0x01;
-	}
-	while (ModeList_VGA[i].mode!=0xffff) {
-		if (mode==ModeList_VGA[i].mode) goto foundit; else i++;
-	}
-	return VESA_FAIL;
-foundit:
-	if ((int10.vesa_oldvbe) && (ModeList_VGA[i].mode>=0x120)) return 0x01;
-	VideoModeBlock * mblock=&ModeList_VGA[i];
-	switch (mblock->type) {
-	case M_LIN4:
-		pageSize = mblock->sheight * mblock->swidth/2;
-		var_write(&minfo.BytesPerScanLine,mblock->swidth/8);
-		var_write(&minfo.NumberOfPlanes,0x4);
-		var_write(&minfo.BitsPerPixel,4);
-		var_write(&minfo.MemoryModel,3);	//ega planar mode
-		modeAttributes = 0x1b;	// Color, graphics, no linear buffer
-		break;
-	case M_LIN8:
-		pageSize = mblock->sheight * mblock->swidth;
-		var_write(&minfo.BytesPerScanLine,mblock->swidth);
-		var_write(&minfo.NumberOfPlanes,0x1);
-		var_write(&minfo.BitsPerPixel,8);
-		var_write(&minfo.MemoryModel,4);		//packed pixel
-		modeAttributes = 0x1b;	// Color, graphics
-		if (!int10.vesa_nolfb) modeAttributes |= 0x80;	// linear framebuffer
-		break;
-	case M_LIN15:
-		pageSize = mblock->sheight * mblock->swidth*2;
-		var_write(&minfo.BytesPerScanLine,mblock->swidth*2);
-		var_write(&minfo.NumberOfPlanes,0x1);
-		var_write(&minfo.BitsPerPixel,15);
-		var_write(&minfo.MemoryModel,6);	//HiColour
-		var_write(&minfo.RedMaskSize,5);
-		var_write(&minfo.RedMaskPos,10);
-		var_write(&minfo.GreenMaskSize,5);
-		var_write(&minfo.GreenMaskPos,5);
-		var_write(&minfo.BlueMaskSize,5);
-		var_write(&minfo.BlueMaskPos,0);
-		var_write(&minfo.ReservedMaskSize,0x01);
-		var_write(&minfo.ReservedMaskPos,0x0f);
-		modeAttributes = 0x1b;	// Color, graphics
-		if (!int10.vesa_nolfb) modeAttributes |= 0x80;	// linear framebuffer
-		break;
-	case M_LIN16:
-		pageSize = mblock->sheight * mblock->swidth*2;
-		var_write(&minfo.BytesPerScanLine,mblock->swidth*2);
-		var_write(&minfo.NumberOfPlanes,0x1);
-		var_write(&minfo.BitsPerPixel,16);
-		var_write(&minfo.MemoryModel,6);	//HiColour
-		var_write(&minfo.RedMaskSize,5);
-		var_write(&minfo.RedMaskPos,11);
-		var_write(&minfo.GreenMaskSize,6);
-		var_write(&minfo.GreenMaskPos,5);
-		var_write(&minfo.BlueMaskSize,5);
-		var_write(&minfo.BlueMaskPos,0);
-		modeAttributes = 0x1b;	// Color, graphics
-		if (!int10.vesa_nolfb) modeAttributes |= 0x80;	// linear framebuffer
-		break;
-	case M_LIN32:
-		pageSize = mblock->sheight * mblock->swidth*4;
-		var_write(&minfo.BytesPerScanLine,mblock->swidth*4);
-		var_write(&minfo.NumberOfPlanes,0x1);
-		var_write(&minfo.BitsPerPixel,32);
-		var_write(&minfo.MemoryModel,6);	//HiColour
-		var_write(&minfo.RedMaskSize,8);
-		var_write(&minfo.RedMaskPos,0x10);
-		var_write(&minfo.GreenMaskSize,0x8);
-		var_write(&minfo.GreenMaskPos,0x8);
-		var_write(&minfo.BlueMaskSize,0x8);
-		var_write(&minfo.BlueMaskPos,0x0);
-		var_write(&minfo.ReservedMaskSize,0x8);
-		var_write(&minfo.ReservedMaskPos,0x18);
-		modeAttributes = 0x1b;	// Color, graphics
-		if (!int10.vesa_nolfb) modeAttributes |= 0x80;	// linear framebuffer
-		break;
-	case M_TEXT:
-		pageSize = 0;
-		var_write(&minfo.BytesPerScanLine, mblock->twidth * 2);
-		var_write(&minfo.NumberOfPlanes,0x4);
-		var_write(&minfo.BitsPerPixel,4);
-		var_write(&minfo.MemoryModel,0);	// text
-		modeAttributes = 0x0f;	//Color, text, bios output
-		break;
-	default:
-		return VESA_FAIL;
-	}
-	if (pageSize & 0xFFFF) {
-		// It is documented that many applications assume 64k-aligned page sizes
-		// VBETEST is one of them
-		pageSize += 0x10000;
-		pageSize &= ~0xFFFF;
-	}
-	Bitu pages = 0;
-	if (pageSize > vga.vmemsize) {
-		// mode not supported by current hardware configuration
-		modeAttributes &= ~0x1;
-	} else if (pageSize) {
-		pages = (vga.vmemsize / pageSize)-1;
-	}
-	var_write(&minfo.NumberOfImagePages, pages);
-	var_write(&minfo.ModeAttributes, modeAttributes);
-	var_write(&minfo.WinAAttributes, 0x7);	// Exists/readable/writable
+    // Early SVGA mode check
+    if (svga.accepts_mode && !svga.accepts_mode(mode)) return 0x01;
 
-	if (mblock->type==M_TEXT) {
-		var_write(&minfo.WinGranularity,32);
-		var_write(&minfo.WinSize,32);
-		var_write(&minfo.WinASegment,0xb800);
-		var_write(&minfo.XResolution,mblock->twidth);
-		var_write(&minfo.YResolution,mblock->theight);
-	} else {
-		var_write(&minfo.WinGranularity,64);
-		var_write(&minfo.WinSize,64);
-		var_write(&minfo.WinASegment,0xa000);
-		var_write(&minfo.XResolution,mblock->swidth);
-		var_write(&minfo.YResolution,mblock->sheight);
-	}
-	var_write(&minfo.WinFuncPtr,CALLBACK_RealPointer(callback.setwindow));
-	var_write(&minfo.NumberOfBanks,0x1);
-	var_write(&minfo.Reserved_page,0x1);
-	var_write(&minfo.XCharSize,mblock->cwidth);
-	var_write(&minfo.YCharSize,mblock->cheight);
-	if (!int10.vesa_nolfb) var_write(&minfo.PhysBasePtr,S3_LFB_BASE);
+    // Linear search optimized with pointer arithmetic
+    const VideoModeBlock* mblock = ModeList_VGA;
+    while (mblock->mode != 0xffff && mblock->mode != mode) mblock++;
+    if (mblock->mode == 0xffff) return VESA_FAIL;
+    if (int10.vesa_oldvbe && mblock->mode >= 0x120) return 0x01;
 
-	MEM_BlockWrite(buf,&minfo,sizeof(MODE_INFO));
-	return VESA_SUCCESS;
+    // Precompute common values
+    Bit8u modeAttributes = 0x1b;  // Default: Color, graphics
+    Bitu pageSize;
+    MODE_INFO minfo = {0};  // Zero-init only once
+
+    // Switch on mode type with minimal branching
+    switch (mblock->type) {
+    case M_LIN4:
+        pageSize = mblock->sheight * mblock->swidth / 2;
+        minfo.BytesPerScanLine = mblock->swidth / 8;
+        minfo.NumberOfPlanes = 0x4;
+        minfo.BitsPerPixel = 4;
+        minfo.MemoryModel = 3;  // EGA planar mode
+        break;
+    case M_LIN8:
+        pageSize = mblock->sheight * mblock->swidth;
+        minfo.BytesPerScanLine = mblock->swidth;
+        minfo.NumberOfPlanes = 0x1;
+        minfo.BitsPerPixel = 8;
+        minfo.MemoryModel = 4;  // Packed pixel
+        if (!int10.vesa_nolfb) modeAttributes |= 0x80;  // Linear framebuffer
+        break;
+    case M_LIN15:
+        pageSize = mblock->sheight * mblock->swidth * 2;
+        minfo.BytesPerScanLine = mblock->swidth * 2;
+        minfo.NumberOfPlanes = 0x1;
+        minfo.BitsPerPixel = 15;
+        minfo.MemoryModel = 6;  // HiColour
+        minfo.RedMaskSize = 5;
+        minfo.RedMaskPos = 10;
+        minfo.GreenMaskSize = 5;
+        minfo.GreenMaskPos = 5;
+        minfo.BlueMaskSize = 5;
+        minfo.BlueMaskPos = 0;
+        minfo.ReservedMaskSize = 0x01;
+        minfo.ReservedMaskPos = 0x0f;
+        if (!int10.vesa_nolfb) modeAttributes |= 0x80;
+        break;
+    case M_LIN16:
+        pageSize = mblock->sheight * mblock->swidth * 2;
+        minfo.BytesPerScanLine = mblock->swidth * 2;
+        minfo.NumberOfPlanes = 0x1;
+        minfo.BitsPerPixel = 16;
+        minfo.MemoryModel = 6;
+        minfo.RedMaskSize = 5;
+        minfo.RedMaskPos = 11;
+        minfo.GreenMaskSize = 6;
+        minfo.GreenMaskPos = 5;
+        minfo.BlueMaskSize = 5;
+        minfo.BlueMaskPos = 0;
+        if (!int10.vesa_nolfb) modeAttributes |= 0x80;
+        break;
+    case M_LIN32:
+        pageSize = mblock->sheight * mblock->swidth * 4;
+        minfo.BytesPerScanLine = mblock->swidth * 4;
+        minfo.NumberOfPlanes = 0x1;
+        minfo.BitsPerPixel = 32;
+        minfo.MemoryModel = 6;
+        minfo.RedMaskSize = 8;
+        minfo.RedMaskPos = 0x10;
+        minfo.GreenMaskSize = 0x8;
+        minfo.GreenMaskPos = 0x8;
+        minfo.BlueMaskSize = 0x8;
+        minfo.BlueMaskPos = 0x0;
+        minfo.ReservedMaskSize = 0x8;
+        minfo.ReservedMaskPos = 0x18;
+        if (!int10.vesa_nolfb) modeAttributes |= 0x80;
+        break;
+    case M_TEXT:
+        pageSize = 0;
+        minfo.BytesPerScanLine = mblock->twidth * 2;
+        minfo.NumberOfPlanes = 0x4;
+        minfo.BitsPerPixel = 4;
+        minfo.MemoryModel = 0;  // Text
+        modeAttributes = 0x0f;  // Color, text, BIOS output
+        break;
+    default:
+        return VESA_FAIL;
+    }
+
+    // Page size adjustment and image pages calculation
+    if (pageSize & 0xFFFF) pageSize = (pageSize + 0x10000) & ~0xFFFF;
+    minfo.NumberOfImagePages = (pageSize > vga.vmemsize) ? 0 : (vga.vmemsize / pageSize) - 1;
+    if (pageSize > vga.vmemsize) modeAttributes &= ~0x1;
+
+    // Set common fields
+    minfo.ModeAttributes = modeAttributes;
+    minfo.WinAAttributes = 0x7;  // Exists/readable/writable
+    minfo.WinFuncPtr = CALLBACK_RealPointer(callback.setwindow);
+    minfo.NumberOfBanks = 0x1;
+    minfo.Reserved_page = 0x1;
+    minfo.XCharSize = mblock->cwidth;
+    minfo.YCharSize = mblock->cheight;
+
+    // Conditional settings based on mode type
+    if (mblock->type == M_TEXT) {
+        minfo.WinGranularity = 32;
+        minfo.WinSize = 32;
+        minfo.WinASegment = 0xb800;
+        minfo.XResolution = mblock->twidth;
+        minfo.YResolution = mblock->theight;
+    } else {
+        minfo.WinGranularity = 64;
+        minfo.WinSize = 64;
+        minfo.WinASegment = 0xa000;
+        minfo.XResolution = mblock->swidth;
+        minfo.YResolution = mblock->sheight;
+    }
+
+    // Linear framebuffer base
+    if (!int10.vesa_nolfb) minfo.PhysBasePtr = S3_LFB_BASE;
+
+    // Write the entire struct at once
+    MEM_BlockWrite(buf, &minfo, sizeof(MODE_INFO));
+    return VESA_SUCCESS;
 }
-
 
 Bit8u VESA_SetSVGAMode(Bit16u mode) {
 	if (INT10_SetVideoMode(mode)) {
