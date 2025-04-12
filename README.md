@@ -2,7 +2,8 @@
 This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
 If anything comes of this project then it will likely be incorporated by those with the talent.<BR />
 Up to 300% speed update so far? Enabling dynrec is a massive jump.<BR />
-I opened a ticket on the original dosbox.libretro to see if it can mainline into the build.<BR />
+I opened a ticket on the original dosbox.libretro to see if fixed build options can mainline into the build.<BR />
+If you want to build the original with your system capabilities then add CXX += -std=c++14 somewhere near the top of your Makefile.libretro<BR />
 The buildbot is not using dynrec so it is not (seeming) faster yet other than that change.<BR />
 I cleaned up all the warnings so there may actually be a slight speed hit atm with warning checks.<BR />
 Is it faster or not? Unnuno. Depends if you already have dynrec enabled and can run profiling on it.<BR />
