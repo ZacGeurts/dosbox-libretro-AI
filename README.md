@@ -1,5 +1,7 @@
 # DOSBOX-Grok3-AI<BR />
-Up to 300% speed update so far. <BR />
+This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
+If anything comes of this project then it will likely be incorporated by those with the talent.<BR />
+Up to 300% speed update so far? <BR />
 The buildbot may not be using dynrec so it may only be like 30% update.<BR />
 I cleaned up all the warnings so there may actually be a slight speed hit while updating.<BR />
 Is it faster or not? Unnuno. Probably and maybe by a lot. WIP and updates will be coming soon.<BR />
@@ -10,7 +12,6 @@ You can view the framerate and other setting in Config - On screen Notifications
 One of the updates changed endian so PowerPC is unlikely to work any longer with this build. <BR />
 This was built with C++17 and is likely to require it due to memory updates.<BR />
 If you can test it on a mobile platform please open a ticket letting everyone know how it went.<BR />
-This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
 
 <img src="Screenshot from 2025-04-11 14-45-25.png"></img>
 
