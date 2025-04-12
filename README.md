@@ -1,11 +1,12 @@
 # DOSBOX-Grok3-AI<BR />
 This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
 If anything comes of this project then it will likely be incorporated by those with the talent.<BR />
-Up to 300% speed update so far? <BR />
-The buildbot may not be using dynrec so it may only be like 30% update.<BR />
-I cleaned up all the warnings so there may actually be a slight speed hit while updating.<BR />
-Is it faster or not? Unnuno. Probably and maybe by a lot. WIP and updates will be coming soon.<BR />
-(Barring foul play)<BR />
+Up to 300% speed update so far? Enabling dynrec is a massive jump.<BR />
+I opened a ticket on the original dosbox.libretro to see if it can mainline into the build.<BR />
+The buildbot is not using dynrec so it is not (seeming) faster yet other than that change.<BR />
+I cleaned up all the warnings so there may actually be a slight speed hit atm with warning checks.<BR />
+Is it faster or not? Unnuno. Depends if you already have dynrec enabled and can run profiling on it.<BR />
+The niceity is it builds with C++ 17 now and probably 20 without pages of warnings and errors.<BR />
 I will be eventually getting more information on what is being achieved. Still a new project.<BR />
 Press space bar to run the emulator full speed. <BR />
 You can view the framerate and other setting in Config - On screen Notifications - Notification Visibility <BR />
