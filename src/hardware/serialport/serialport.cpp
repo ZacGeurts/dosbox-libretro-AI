@@ -269,10 +269,10 @@ void CSerial::handleEvent(Bit16u type) {
 			break;
 		}
 		case SERIAL_ERRMSG_EVENT: {
-			LOG_MSG("Serial%d: Errors: "\
-				"Framing %d, Parity %d, Overrun RX:%d (IF0:%d), TX:%d, Break %d",
-				COMNUMBER, framingErrors, parityErrors, overrunErrors,
-				overrunIF0,txOverrunErrors, breakErrors);
+			LOG_MSG("Serial%lu: Errors: "\
+        "Framing %lu, Parity %lu, Overrun RX:%lu (IF0:%lu), TX:%lu, Break %lu",
+        COMNUMBER, framingErrors, parityErrors, overrunErrors,
+        overrunIF0, txOverrunErrors, breakErrors);
 			errormsg_pending=false;
 			framingErrors=0;
 			parityErrors=0;

@@ -695,7 +695,9 @@ public:
 				if (cart_cmd!="") {
 					/* read cartridge data into buffer */
 					fseek(usefile_1,0x200L, SEEK_SET);
-					fread(rombuf, 1, rombytesize_1-0x200, usefile_1);
+					if (fread(rombuf, 1, rombytesize_1-0x200, usefile_1) != rombytesize_1-0x200) {
+    					E_Exit("BOOT: Failed to read %u bytes from file 1", rombytesize_1-0x200);
+					}
 
 					char cmdlist[1024];
 					cmdlist[0]=0;
@@ -781,12 +783,16 @@ public:
 
 				if (usefile_2!=NULL) {
 					fseek(usefile_2, 0x0L, SEEK_SET);
-					fread(rombuf, 1, 0x200, usefile_2);
+					if (fread(rombuf, 1, 0x200, usefile_2) != 0x200) {
+    					E_Exit("BOOT: Failed to read 512 bytes from file 2");
+					}
 					PhysPt romseg_pt=host_readw(&rombuf[0x1ce])<<4;
 
 					/* read cartridge data into buffer */
 					fseek(usefile_2, 0x200L, SEEK_SET);
-					fread(rombuf, 1, rombytesize_2-0x200, usefile_2);
+					if (fread(rombuf, 1, rombytesize_2-0x200, usefile_2) != rombytesize_2-0x200) {
+    					E_Exit("BOOT: Failed to read %u bytes from file 2", rombytesize_2-0x200);
+					}
 					//fclose(usefile_2); //usefile_2 is in diskSwap structure which should be deleted to close the file
 
 					/* write cartridge data into ROM */
@@ -794,12 +800,16 @@ public:
 				}
 
 				fseek(usefile_1, 0x0L, SEEK_SET);
-				fread(rombuf, 1, 0x200, usefile_1);
+				if (fread(rombuf, 1, 0x200, usefile_1) != 0x200) {
+    				E_Exit("BOOT: Failed to read 512 bytes from file 1");
+				}
 				Bit16u romseg=host_readw(&rombuf[0x1ce]);
 
 				/* read cartridge data into buffer */
 				fseek(usefile_1,0x200L, SEEK_SET);
-				fread(rombuf, 1, rombytesize_1-0x200, usefile_1);
+				if (fread(rombuf, 1, rombytesize_1-0x200, usefile_1) != rombytesize_1-0x200) {
+    				E_Exit("BOOT: Failed to read %u bytes from file 1", rombytesize_1-0x200);
+				}
 				//fclose(usefile_1); //usefile_1 is in diskSwap structure which should be deleted to close the file
 
 				/* write cartridge data into ROM */

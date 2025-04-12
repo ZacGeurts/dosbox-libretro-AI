@@ -1613,7 +1613,8 @@ static Bitu DOS_21Handler(void) {
 					for (i=0;i<8;j++) {
 						if (name1[j] == 0 || s-name1 <= j) break;
 						if (name1[j] == '.') continue;
-						sprintf(c,"%s%c",c,toupper(name1[j]));
+						char temp[2] = {static_cast<char>(toupper(name1[j])), '\0'};
+						strncat(c, temp, sizeof(c) - strlen(c) - 1);
 						i++;
 					}
 					if (s != NULL) {

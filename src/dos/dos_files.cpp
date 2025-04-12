@@ -218,63 +218,90 @@ bool DOS_MakeName(char const * const name,char * const fullname,Bit8u * drive) {
 	return true;	
 }
 
-bool DOS_GetSFNPath(char const * const path,char * SFNPath,bool LFN) {
-	char dir_current[DOS_PATHLENGTH + 1], pdir[LFN_NAMELENGTH], *p;
-	Bit8u drive;char fulldir[DOS_PATHLENGTH],LFNPath[CROSS_LEN];
-	char name[DOS_NAMELENGTH_ASCII], lname[LFN_NAMELENGTH];
-	int w=0;
-	DOS_DTA dta(dos.dta());
-	Bit32u size;Bit16u date;Bit16u time;Bit8u attr;
-	if (!DOS_MakeName(path,fulldir,&drive)) return false;
-	sprintf(SFNPath,"%c:\\",drive+'A');
-	strcpy(LFNPath,SFNPath);
-	strcpy(dir_current,Drives[drive]->curdir);
-	Drives[drive]->curdir,"";
-	p = fulldir;
-	if (*p==0) return true;
-	for (char *s = strchr(p,'\\'); s != NULL; s = strchr(p,'\\')) {
-		*s = 0;
-		if (SFNPath[strlen(SFNPath)-1]=='\\')
-			sprintf(pdir,"\"%s%s\"",SFNPath,p);
-		else
-			sprintf(pdir,"\"%s\\%s\"",SFNPath,p);
-		if (!strrchr(p,'*') && !strrchr(p,'?')) {
-			*s = '\\';
-			p = s + 1;
-			if (DOS_FindFirst(pdir,0xffff & DOS_ATTR_DIRECTORY & ~DOS_ATTR_VOLUME,false)) {
-				dta.GetResult(name,lname,size,date,time,attr);
-				strcat(SFNPath,name);
-				strcat(LFNPath,lname);
-				Drives[drive]->curdir,SFNPath+3;
-				strcat(SFNPath,"\\");
-				strcat(LFNPath,"\\");
-			}
-			else {
-			return false;}
-		} else {
-			strcat(SFNPath,p);
-			strcat(LFNPath,p);
-			strcat(SFNPath,"\\");
-			strcat(LFNPath,"\\");
-			*s = '\\';
-			p = s + 1;
-			break;
-		}
-	}
-	if (p != 0) {
-		sprintf(pdir,"\"%s%s\"",SFNPath,p);
-		if (!strrchr(p,'*')&&!strrchr(p,'?')&&DOS_FindFirst(pdir,0xffff & ~DOS_ATTR_VOLUME,false)) {
-			dta.GetResult(name,lname,size,date,time,attr);
-			strcat(SFNPath,name);
-			strcat(LFNPath,lname);
-		} else {
-			strcat(SFNPath,p);
-			strcat(LFNPath,p);
-		}
-	}
-	Drives[drive]->curdir,dir_current;
-	if (LFN) strcpy(SFNPath,LFNPath);
-	return true;
+bool DOS_GetSFNPath(char const * const path, char * SFNPath, bool LFN) {
+    char dir_current[DOS_PATHLENGTH + 1], pdir[255], *p;
+    Bit8u drive;
+    char fulldir[DOS_PATHLENGTH], LFNPath[CROSS_LEN];
+    char name[DOS_NAMELENGTH_ASCII], lname[LFN_NAMELENGTH];
+    int w = 0;
+    DOS_DTA dta(dos.dta());
+    Bit32u size;
+    Bit16u date;
+    Bit16u time;
+    Bit8u attr;
+    if (!DOS_MakeName(path, fulldir, &drive)) return false;
+    sprintf(SFNPath, "%c:\\", drive + 'A');
+    strcpy(LFNPath, SFNPath);
+    strcpy(dir_current, Drives[drive]->curdir);
+    Drives[drive]->curdir, "";
+    p = fulldir;
+    if (*p == 0) return true;
+    for (char *s = strchr(p, '\\'); s != NULL; s = strchr(p, '\\')) {
+        *s = 0;
+        size_t len_SFNPath = strlen(SFNPath);
+        size_t len_p = strlen(p);
+        if (SFNPath[len_SFNPath - 1] == '\\') {
+            if (len_SFNPath + len_p + 3 > 254) { // 2 quotes + null
+                LOG_MSG("DOS: Path %s%s too long", SFNPath, p);
+                Drives[drive]->curdir, dir_current;
+                return false;
+            }
+            pdir[0] = '"';
+            strcpy(pdir + 1, SFNPath);
+            strcat(pdir, p);
+            strcat(pdir, "\"");
+        } else {
+            if (len_SFNPath + len_p + 4 > 254) { // 2 quotes + backslash + null
+                LOG_MSG("DOS: Path %s\\%s too long", SFNPath, p);
+                Drives[drive]->curdir, dir_current;
+                return false;
+            }
+            pdir[0] = '"';
+            strcpy(pdir + 1, SFNPath);
+            strcat(pdir, "\\");
+            strcat(pdir, p);
+            strcat(pdir, "\"");
+        }
+        if (!strrchr(p, '*') && !strrchr(p, '?')) {
+            *s = '\\';
+            p = s + 1;
+            if (DOS_FindFirst(pdir, 0xffff & DOS_ATTR_DIRECTORY & ~DOS_ATTR_VOLUME, false)) {
+                dta.GetResult(name, lname, size, date, time, attr);
+                strcat(SFNPath, name);
+                strcat(LFNPath, lname);
+                Drives[drive]->curdir, SFNPath + 3;
+                strcat(SFNPath, "\\");
+                strcat(LFNPath, "\\");
+            } else {
+                Drives[drive]->curdir, dir_current;
+                return false;
+            }
+        } else {
+            strcat(SFNPath, p);
+            strcat(LFNPath, p);
+            strcat(SFNPath, "\\");
+            strcat(LFNPath, "\\");
+            *s = '\\';
+            p = s + 1;
+            break;
+        }
+    }
+    if (p != 0) {
+        size_t len_SFNPath = strlen(SFNPath);
+        size_t len_p = strlen(p);
+        if (len_SFNPath + len_p + 3 > 254) { // 2 quotes + null
+            LOG_MSG("DOS: Path %s%s too long", SFNPath, p);
+            Drives[drive]->curdir, dir_current;
+            return false;
+        }
+        pdir[0] = '"';
+        strcpy(pdir + 1, SFNPath);
+        strcat(pdir, p);
+        strcat(pdir, "\"");
+    }
+    Drives[drive]->curdir, dir_current;
+    if (LFN) strcpy(SFNPath, LFNPath);
+    return true;
 }
 
 bool DOS_GetCurrentDir(Bit8u drive,char * const buffer, bool LFN) {
@@ -286,10 +313,20 @@ bool DOS_GetCurrentDir(Bit8u drive,char * const buffer, bool LFN) {
 	}
 	if (LFN && uselfn) {
 		char cdir[DOS_PATHLENGTH],ldir[DOS_PATHLENGTH];
-		if (strchr(Drives[drive]->curdir,' '))
-			sprintf(cdir,"\"%c:\\%s\"",drive+'A',Drives[drive]->curdir);
-		else
-			sprintf(cdir,"%c:\\%s",drive+'A',Drives[drive]->curdir);
+		if (strchr(Drives[drive]->curdir,' ')) {
+			if (strlen(Drives[drive]->curdir) + 5 > 254) { // quote + drive + : + \ + null
+    			LOG_MSG("DOS: Directory %s too long", Drives[drive]->curdir);
+    			return false;
+			}
+			snprintf(cdir, 255, "\"%c:\\%s\"", drive + 'A', Drives[drive]->curdir);
+		}
+		else {
+			if (strlen(Drives[drive]->curdir) + 5 > 254) { // quote + drive + : + \ + null
+    			LOG_MSG("DOS: Directory \\%s too long", Drives[drive]->curdir);
+    			return false;
+			}
+			snprintf(cdir, 255, "%c:\\%s", drive + 'A', Drives[drive]->curdir);
+		}
 		if (!DOS_GetSFNPath(cdir,ldir,true))
 			return false;
 		strcpy(buffer,ldir+3);

@@ -385,7 +385,7 @@ void FPU_ESC3_Normal(Bitu rm) {
 			FPU_FNOP();
 			break;
 		default:
-			E_Exit("ESC 3:ILLEGAL OPCODE group %d subfunction %d",group,sub);
+			E_Exit("ESC 3:ILLEGAL OPCODE group %ld subfunction %ld",group,sub);
 		}
 		break;
 	default:

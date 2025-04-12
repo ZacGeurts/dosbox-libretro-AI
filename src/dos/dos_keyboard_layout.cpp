@@ -149,62 +149,73 @@ void keyboard_layout::read_keyboard_file(Bit32s specific_layout) {
 }
 
 static Bit32u read_kcl_file(const char* kcl_file_name, const char* layout_id, bool first_id_only) {
-	FILE* tempfile = OpenDosboxFile(kcl_file_name);
-	if (tempfile==0) return 0;
+    FILE* tempfile = OpenDosboxFile(kcl_file_name);
+    if (tempfile == 0) return 0;
 
-	static Bit8u rbuf[8192];
+    static Bit8u rbuf[8192];
 
-	// check ID-bytes of file
-	Bit32u dr=(Bit32u)fread(rbuf, sizeof(Bit8u), 7, tempfile);
-	if ((dr<7) || (rbuf[0]!=0x4b) || (rbuf[1]!=0x43) || (rbuf[2]!=0x46)) {
-		fclose(tempfile);
-		return 0;
-	}
+    // check ID-bytes of file
+    Bit32u dr = (Bit32u)fread(rbuf, sizeof(Bit8u), 7, tempfile);
+    if ((dr < 7) || (rbuf[0] != 0x4b) || (rbuf[1] != 0x43) || (rbuf[2] != 0x46)) {
+        fclose(tempfile);
+        return 0;
+    }
 
-	fseek(tempfile, 7+rbuf[6], SEEK_SET);
+    fseek(tempfile, 7 + rbuf[6], SEEK_SET);
 
-	for (;;) {
-		Bit32u cur_pos=(Bit32u)(ftell(tempfile));
-		dr=(Bit32u)fread(rbuf, sizeof(Bit8u), 5, tempfile);
-		if (dr<5) break;
-		Bit16u len=host_readw(&rbuf[0]);
+    for (;;) {
+        Bit32u cur_pos = (Bit32u)(ftell(tempfile));
+        dr = (Bit32u)fread(rbuf, sizeof(Bit8u), 5, tempfile);
+        if (dr < 5) break;
+        Bit16u len = host_readw(&rbuf[0]);
 
-		Bit8u data_len=rbuf[2];
+        Bit8u data_len = rbuf[2];
 
-		char lng_codes[258];
-		fseek(tempfile, -2, SEEK_CUR);
-		// get all language codes for this layout
-		for (Bitu i=0; i<data_len;) {
-			fread(rbuf, sizeof(Bit8u), 2, tempfile);
-			Bit16u lcnum=host_readw(&rbuf[0]);
-			i+=2;
-			Bitu lcpos=0;
-			for (;i<data_len;) {
-				fread(rbuf, sizeof(Bit8u), 1, tempfile);
-				i++;
-				if (((char)rbuf[0])==',') break;
-				lng_codes[lcpos++]=(char)rbuf[0];
-			}
-			lng_codes[lcpos]=0;
-			if (strcasecmp(lng_codes, layout_id)==0) {
-				// language ID found in file, return file position
-				fclose(tempfile);
-				return cur_pos;
-			}
-			if (first_id_only) break;
-			if (lcnum) {
-				sprintf(&lng_codes[lcpos],"%d",lcnum);
-				if (strcasecmp(lng_codes, layout_id)==0) {
-					// language ID found in file, return file position
-					return cur_pos;
-				}
-			}
-		}
-		fseek(tempfile, cur_pos+3+len, SEEK_SET);
-	}
+        char lng_codes[258];
+        fseek(tempfile, -2, SEEK_CUR);
+        // get all language codes for this layout
+        for (Bitu i = 0; i < data_len;) {
+            size_t bytes_read = fread(rbuf, sizeof(Bit8u), 2, tempfile);
+            if (bytes_read != 2) {
+                LOG_MSG("Error reading language code number from keyboard layout file %s", kcl_file_name);
+                fclose(tempfile);
+                return 0;
+            }
+            Bit16u lcnum = host_readw(&rbuf[0]);
+            i += 2;
+            Bitu lcpos = 0;
+            for (; i < data_len;) {
+                size_t bytes_read_single = fread(rbuf, sizeof(Bit8u), 1, tempfile);
+                if (bytes_read_single != 1) {
+                    LOG_MSG("Error reading language code character from keyboard layout file %s", kcl_file_name);
+                    fclose(tempfile);
+                    return 0;
+                }
+                i++;
+                if (((char)rbuf[0]) == ',') break;
+                lng_codes[lcpos++] = (char)rbuf[0];
+            }
+            lng_codes[lcpos] = 0;
+            if (strcasecmp(lng_codes, layout_id) == 0) {
+                // language ID found in file, return file position
+                fclose(tempfile);
+                return cur_pos;
+            }
+            if (first_id_only) break;
+            if (lcnum) {
+                sprintf(&lng_codes[lcpos], "%d", lcnum);
+                if (strcasecmp(lng_codes, layout_id) == 0) {
+                    // language ID found in file, return file position
+                    fclose(tempfile);
+                    return cur_pos;
+                }
+            }
+        }
+        fseek(tempfile, cur_pos + 3 + len, SEEK_SET);
+    }
 
-	fclose(tempfile);
-	return 0;
+    fclose(tempfile);
+    return 0;
 }
 
 static Bit32u read_kcl_data(Bit8u * kcl_data, Bit32u kcl_data_size, const char* layout_id, bool first_id_only) {
@@ -698,267 +709,299 @@ Bit16u keyboard_layout::extract_codepage(const char* keyboard_file_name) {
 }
 
 Bitu keyboard_layout::read_codepage_file(const char* codepage_file_name, Bit32s codepage_id) {
-	char cp_filename[512];
-	strcpy(cp_filename, codepage_file_name);
-	if (!strcmp(cp_filename,"none")) return KEYB_NOERROR;
+    char cp_filename[512];
+    strcpy(cp_filename, codepage_file_name);
+    if (!strcmp(cp_filename,"none")) return KEYB_NOERROR;
 
-	if (codepage_id==dos.loaded_codepage) return KEYB_NOERROR;
+    if (codepage_id==dos.loaded_codepage) return KEYB_NOERROR;
 
-	if (!strcmp(cp_filename,"auto")) {
-		// select matching .cpi-file for specified codepage
-		switch (codepage_id) {
-			case 437:	case 850:	case 852:	case 853:	case 857:	case 858:	
-						sprintf(cp_filename, "EGA.CPI"); break;
-			case 775:	case 859:	case 1116:	case 1117:
-						sprintf(cp_filename, "EGA2.CPI"); break;
-			case 771:	case 772:	case 808:	case 855:	case 866:	case 872:
-						sprintf(cp_filename, "EGA3.CPI"); break;
-			case 848:	case 849:	case 1125:	case 1131:	case 61282:
-						sprintf(cp_filename, "EGA4.CPI"); break;
-			case 737:	case 851:	case 869:
-						sprintf(cp_filename, "EGA5.CPI"); break;
-			case 113:	case 899:	case 59829:	case 60853:
-						sprintf(cp_filename, "EGA6.CPI"); break;
-			case 58152:	case 58210:	case 59234:	case 60258:	case 62306:
-						sprintf(cp_filename, "EGA7.CPI"); break;
-			case 770:	case 773:	case 774:	case 777:	case 778:
-						sprintf(cp_filename, "EGA8.CPI"); break;
-			case 860:	case 861:	case 863:	case 865:
-						sprintf(cp_filename, "EGA9.CPI"); break;
-			case 667:	case 668:	case 790:	case 867:	case 991:	case 57781:
-						sprintf(cp_filename, "EGA10.CPI"); break;
-			default:
-				LOG_MSG("No matching cpi file for codepage %i",codepage_id);
-				return KEYB_INVALIDCPFILE;
-		}
-	}
+    if (!strcmp(cp_filename,"auto")) {
+        // select matching .cpi-file for specified codepage
+        switch (codepage_id) {
+            case 437:	case 850:	case 852:	case 853:	case 857:	case 858:	
+                        sprintf(cp_filename, "EGA.CPI"); break;
+            case 775:	case 859:	case 1116:	case 1117:
+                        sprintf(cp_filename, "EGA2.CPI"); break;
+            case 771:	case 772:	case 808:	case 855:	case 866:	case 872:
+                        sprintf(cp_filename, "EGA3.CPI"); break;
+            case 848:	case 849:	case 1125:	case 1131:	case 61282:
+                        sprintf(cp_filename, "EGA4.CPI"); break;
+            case 737:	case 851:	case 869:
+                        sprintf(cp_filename, "EGA5.CPI"); break;
+            case 113:	case 899:	case 59829:	case 60853:
+                        sprintf(cp_filename, "EGA6.CPI"); break;
+            case 58152:	case 58210:	case 59234:	case 60258:	case 62306:
+                        sprintf(cp_filename, "EGA7.CPI"); break;
+            case 770:	case 773:	case 774:	case 777:	case 778:
+                        sprintf(cp_filename, "EGA8.CPI"); break;
+            case 860:	case 861:	case 863:	case 865:
+                        sprintf(cp_filename, "EGA9.CPI"); break;
+            case 667:	case 668:	case 790:	case 867:	case 991:	case 57781:
+                        sprintf(cp_filename, "EGA10.CPI"); break;
+            default:
+                LOG_MSG("No matching cpi file for codepage %i",codepage_id);
+                return KEYB_INVALIDCPFILE;
+        }
+    }
 
-	Bit32u start_pos;
-	Bit16u number_of_codepages;
+    Bit32u start_pos;
+    Bit16u number_of_codepages;
 
-	char nbuf[512];
-	sprintf(nbuf, "%s", cp_filename);
-	FILE* tempfile=OpenDosboxFile(nbuf);
-	if (tempfile==NULL) {
-		size_t strsz=strlen(nbuf);
-		if (strsz) {
-			char plc=(char)toupper(*reinterpret_cast<unsigned char*>(&nbuf[strsz-1]));
-			if (plc=='I') {
-				// try CPX-extension as well
-				nbuf[strsz-1]='X';
-				tempfile=OpenDosboxFile(nbuf);
-			} else if (plc=='X') {
-				// try CPI-extension as well
-				nbuf[strsz-1]='I';
-				tempfile=OpenDosboxFile(nbuf);
-			}
-		}
-	}
+    char nbuf[512];
+    sprintf(nbuf, "%s", cp_filename);
+    FILE* tempfile=OpenDosboxFile(nbuf);
+    if (tempfile==NULL) {
+        size_t strsz=strlen(nbuf);
+        if (strsz) {
+            char plc=(char)toupper(*reinterpret_cast<unsigned char*>(&nbuf[strsz-1]));
+            if (plc=='I') {
+                // try CPX-extension as well
+                nbuf[strsz-1]='X';
+                tempfile=OpenDosboxFile(nbuf);
+            } else if (plc=='X') {
+                // try CPI-extension as well
+                nbuf[strsz-1]='I';
+                tempfile=OpenDosboxFile(nbuf);
+            }
+        }
+    }
 
-	static Bit8u cpi_buf[65536];
-	Bit32u cpi_buf_size=0,size_of_cpxdata=0;;
-	bool upxfound=false;
-	Bit16u found_at_pos=5;
-	if (tempfile==NULL) {
-		// check if build-in codepage is available
-		switch (codepage_id) {
-			case 437:	case 850:	case 852:	case 853:	case 857:	case 858:	
-						for (Bitu bct=0; bct<6322; bct++) cpi_buf[bct]=font_ega_cpx[bct];
-						cpi_buf_size=6322;
-						break;
-			case 771:	case 772:	case 808:	case 855:	case 866:	case 872:
-						for (Bitu bct=0; bct<5455; bct++) cpi_buf[bct]=font_ega3_cpx[bct];
-						cpi_buf_size=5455;
-						break;
-			case 737:	case 851:	case 869:
-						for (Bitu bct=0; bct<5720; bct++) cpi_buf[bct]=font_ega5_cpx[bct];
-						cpi_buf_size=5720;
-						break;
-			default: 
-				return KEYB_INVALIDCPFILE;
-				break;
-		}
-		upxfound=true;
-		found_at_pos=0x29;
-		size_of_cpxdata=cpi_buf_size;
-	} else {
-		Bit32u dr=(Bit32u)fread(cpi_buf, sizeof(Bit8u), 5, tempfile);
-		// check if file is valid
-		if (dr<5) {
-			LOG(LOG_BIOS,LOG_ERROR)("Codepage file %s invalid",cp_filename);
-			return KEYB_INVALIDCPFILE;
-		}
-		// check if non-compressed cpi file
-		if ((cpi_buf[0]!=0xff) || (cpi_buf[1]!=0x46) || (cpi_buf[2]!=0x4f) || 
-			(cpi_buf[3]!=0x4e) || (cpi_buf[4]!=0x54)) {
-			// check if dr-dos custom cpi file
-			if ((cpi_buf[0]==0x7f) && (cpi_buf[1]!=0x44) && (cpi_buf[2]!=0x52) && 
-				(cpi_buf[3]!=0x46) && (cpi_buf[4]!=0x5f)) {
-				LOG(LOG_BIOS,LOG_ERROR)("Codepage file %s has unsupported DR-DOS format",cp_filename);
-				return KEYB_INVALIDCPFILE;
-			}
-			// check if compressed cpi file
-			Bit8u next_byte=0;
-			for (Bitu i=0; i<100; i++) {
-				fread(&next_byte, sizeof(Bit8u), 1, tempfile);	found_at_pos++;
-				while (next_byte==0x55) {
-					fread(&next_byte, sizeof(Bit8u), 1, tempfile);	found_at_pos++;
-					if (next_byte==0x50) {
-						fread(&next_byte, sizeof(Bit8u), 1, tempfile);	found_at_pos++;
-						if (next_byte==0x58) {
-							fread(&next_byte, sizeof(Bit8u), 1, tempfile);	found_at_pos++;
-							if (next_byte==0x21) {
-								// read version ID
-								fread(&next_byte, sizeof(Bit8u), 1, tempfile);
-								found_at_pos++;
-								upxfound=true;
-								break;
-							}
-						}
-					}
-				}
-				if (upxfound) break;
-			}
-			if (!upxfound) {
-				LOG(LOG_BIOS,LOG_ERROR)("Codepage file %s invalid: %x",cp_filename,cpi_buf[0]);
-				return KEYB_INVALIDCPFILE;
-			} else {
-				if (next_byte<10) E_Exit("UPX-compressed cpi file, but upx-version too old");
+    static Bit8u cpi_buf[65536];
+    Bit32u cpi_buf_size=0,size_of_cpxdata=0;
+    bool upxfound=false;
+    Bit16u found_at_pos=5;
+    if (tempfile==NULL) {
+        // check if build-in codepage is available
+        switch (codepage_id) {
+            case 437:	case 850:	case 852:	case 853:	case 857:	case 858:	
+                        for (Bitu bct=0; bct<6322; bct++) cpi_buf[bct]=font_ega_cpx[bct];
+                        cpi_buf_size=6322;
+                        break;
+            case 771:	case 772:	case 808:	case 855:	case 866:	case 872:
+                        for (Bitu bct=0; bct<5455; bct++) cpi_buf[bct]=font_ega3_cpx[bct];
+                        cpi_buf_size=5455;
+                        break;
+            case 737:	case 851:	case 869:
+                        for (Bitu bct=0; bct<5720; bct++) cpi_buf[bct]=font_ega5_cpx[bct];
+                        cpi_buf_size=5720;
+                        break;
+            default: 
+                return KEYB_INVALIDCPFILE;
+                break;
+        }
+        upxfound=true;
+        found_at_pos=0x29;
+        size_of_cpxdata=cpi_buf_size;
+    } else {
+        size_t bytes_read = fread(cpi_buf, sizeof(Bit8u), 5, tempfile);
+        // check if file is valid
+        if (bytes_read != 5) {
+            LOG(LOG_BIOS,LOG_ERROR)("Codepage file %s invalid",cp_filename);
+            fclose(tempfile);
+            return KEYB_INVALIDCPFILE;
+        }
+        // check if non-compressed cpi file
+        if ((cpi_buf[0]!=0xff) || (cpi_buf[1]!=0x46) || (cpi_buf[2]!=0x4f) || 
+            (cpi_buf[3]!=0x4e) || (cpi_buf[4]!=0x54)) {
+            // check if dr-dos custom cpi file
+            if ((cpi_buf[0]==0x7f) && (cpi_buf[1]!=0x44) && (cpi_buf[2]!=0x52) && 
+                (cpi_buf[3]!=0x46) && (cpi_buf[4]!=0x5f)) {
+                LOG(LOG_BIOS,LOG_ERROR)("Codepage file %s has unsupported DR-DOS format",cp_filename);
+                fclose(tempfile);
+                return KEYB_INVALIDCPFILE;
+            }
+            // check if compressed cpi file
+            Bit8u next_byte=0;
+            for (Bitu i=0; i<100; i++) {
+                bytes_read = fread(&next_byte, sizeof(Bit8u), 1, tempfile);
+                if (bytes_read != 1) {
+                    LOG(LOG_BIOS,LOG_ERROR)("Error reading byte from codepage file %s at position %u", cp_filename, found_at_pos);
+                    fclose(tempfile);
+                    return KEYB_INVALIDCPFILE;
+                }
+                found_at_pos++;
+                while (next_byte==0x55) {
+                    bytes_read = fread(&next_byte, sizeof(Bit8u), 1, tempfile);
+                    if (bytes_read != 1) {
+                        LOG(LOG_BIOS,LOG_ERROR)("Error reading byte from codepage file %s at position %u", cp_filename, found_at_pos);
+                        fclose(tempfile);
+                        return KEYB_INVALIDCPFILE;
+                    }
+                    found_at_pos++;
+                    if (next_byte==0x50) {
+                        bytes_read = fread(&next_byte, sizeof(Bit8u), 1, tempfile);
+                        if (bytes_read != 1) {
+                            LOG(LOG_BIOS,LOG_ERROR)("Error reading byte from codepage file %s at position %u", cp_filename, found_at_pos);
+                            fclose(tempfile);
+                            return KEYB_INVALIDCPFILE;
+                        }
+                        found_at_pos++;
+                        if (next_byte==0x58) {
+                            bytes_read = fread(&next_byte, sizeof(Bit8u), 1, tempfile);
+                            if (bytes_read != 1) {
+                                LOG(LOG_BIOS,LOG_ERROR)("Error reading byte from codepage file %s at position %u", cp_filename, found_at_pos);
+                                fclose(tempfile);
+                                return KEYB_INVALIDCPFILE;
+                            }
+                            found_at_pos++;
+                            if (next_byte==0x21) {
+                                // read version ID
+                                bytes_read = fread(&next_byte, sizeof(Bit8u), 1, tempfile);
+                                if (bytes_read != 1) {
+                                    LOG(LOG_BIOS,LOG_ERROR)("Error reading version ID from codepage file %s at position %u", cp_filename, found_at_pos);
+                                    fclose(tempfile);
+                                    return KEYB_INVALIDCPFILE;
+                                }
+                                found_at_pos++;
+                                upxfound=true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (upxfound) break;
+            }
+            if (!upxfound) {
+                LOG(LOG_BIOS,LOG_ERROR)("Codepage file %s invalid: %x",cp_filename,cpi_buf[0]);
+                fclose(tempfile);
+                return KEYB_INVALIDCPFILE;
+            } else {
+                if (next_byte<10) E_Exit("UPX-compressed cpi file, but upx-version too old");
 
-				// read in compressed CPX-file
-				fseek(tempfile, 0, SEEK_SET);
-				size_of_cpxdata=(Bitu)fread(cpi_buf, sizeof(Bit8u), 65536, tempfile);
-			}
-		} else {
-			// standard uncompressed cpi-file
-			fseek(tempfile, 0, SEEK_SET);
-			cpi_buf_size=(Bit32u)fread(cpi_buf, sizeof(Bit8u), 65536, tempfile);
-		}
-	}
+                // read in compressed CPX-file
+                fseek(tempfile, 0, SEEK_SET);
+                size_of_cpxdata=(Bitu)fread(cpi_buf, sizeof(Bit8u), 65536, tempfile);
+            }
+        } else {
+            // standard uncompressed cpi-file
+            fseek(tempfile, 0, SEEK_SET);
+            cpi_buf_size=(Bit32u)fread(cpi_buf, sizeof(Bit8u), 65536, tempfile);
+        }
+        fclose(tempfile);
+    }
 
-	if (upxfound) {
-		if (size_of_cpxdata>0xfe00) E_Exit("Size of cpx-compressed data too big");
+    if (upxfound) {
+        if (size_of_cpxdata>0xfe00) E_Exit("Size of cpx-compressed data too big");
 
-		found_at_pos+=19;
-		// prepare for direct decompression
-		cpi_buf[found_at_pos]=0xcb;
+        found_at_pos+=19;
+        // prepare for direct decompression
+        cpi_buf[found_at_pos]=0xcb;
 
-		Bit16u seg=0;
-		Bit16u size=0x1500;
-		if (!DOS_AllocateMemory(&seg,&size)) E_Exit("Not enough free low memory to unpack data");
-		MEM_BlockWrite((seg<<4)+0x100,cpi_buf,size_of_cpxdata);
+        Bit16u seg=0;
+        Bit16u size=0x1500;
+        if (!DOS_AllocateMemory(&seg,&size)) E_Exit("Not enough free low memory to unpack data");
+        MEM_BlockWrite((seg<<4)+0x100,cpi_buf,size_of_cpxdata);
 
-		// setup segments
-		Bit16u save_ds=SegValue(ds);
-		Bit16u save_es=SegValue(es);
-		Bit16u save_ss=SegValue(ss);
-		Bit32u save_esp=reg_esp;
-		SegSet16(ds,seg);
-		SegSet16(es,seg);
-		SegSet16(ss,seg+0x1000);
-		reg_esp=0xfffe;
+        // setup segments
+        Bit16u save_ds=SegValue(ds);
+        Bit16u save_es=SegValue(es);
+        Bit16u save_ss=SegValue(ss);
+        Bit32u save_esp=reg_esp;
+        SegSet16(ds,seg);
+        SegSet16(es,seg);
+        SegSet16(ss,seg+0x1000);
+        reg_esp=0xfffe;
 
-		// let UPX unpack the file
-		CALLBACK_RunRealFar(seg,0x100);
+        // let UPX unpack the file
+        CALLBACK_RunRealFar(seg,0x100);
 
-		SegSet16(ds,save_ds);
-		SegSet16(es,save_es);
-		SegSet16(ss,save_ss);
-		reg_esp=save_esp;
+        SegSet16(ds,save_ds);
+        SegSet16(es,save_es);
+        SegSet16(ss,save_ss);
+        reg_esp=save_esp;
 
-		// get unpacked content
-		MEM_BlockRead((seg<<4)+0x100,cpi_buf,65536);
-		cpi_buf_size=65536;
+        // get unpacked content
+        MEM_BlockRead((seg<<4)+0x100,cpi_buf,65536);
+        cpi_buf_size=65536;
 
-		DOS_FreeMemory(seg);
-	}
+        DOS_FreeMemory(seg);
+    }
 
+    start_pos=host_readd(&cpi_buf[0x13]);
+    number_of_codepages=host_readw(&cpi_buf[start_pos]);
+    start_pos+=4;
 
-	start_pos=host_readd(&cpi_buf[0x13]);
-	number_of_codepages=host_readw(&cpi_buf[start_pos]);
-	start_pos+=4;
+    // search if codepage is provided by file
+    for (Bit16u test_codepage=0; test_codepage<number_of_codepages; test_codepage++) {
+        Bit16u device_type, font_codepage, font_type;
 
-	// search if codepage is provided by file
-	for (Bit16u test_codepage=0; test_codepage<number_of_codepages; test_codepage++) {
-		Bit16u device_type, font_codepage, font_type;
+        // device type can be display/printer (only the first is supported)
+        device_type=host_readw(&cpi_buf[start_pos+0x04]);
+        font_codepage=host_readw(&cpi_buf[start_pos+0x0e]);
 
-		// device type can be display/printer (only the first is supported)
-		device_type=host_readw(&cpi_buf[start_pos+0x04]);
-		font_codepage=host_readw(&cpi_buf[start_pos+0x0e]);
+        Bit32u font_data_header_pt;
+        font_data_header_pt=host_readd(&cpi_buf[start_pos+0x16]);
 
-		Bit32u font_data_header_pt;
-		font_data_header_pt=host_readd(&cpi_buf[start_pos+0x16]);
+        font_type=host_readw(&cpi_buf[font_data_header_pt]);
 
-		font_type=host_readw(&cpi_buf[font_data_header_pt]);
+        if ((device_type==0x0001) && (font_type==0x0001) && (font_codepage==codepage_id)) {
+            // valid/matching codepage found
 
-		if ((device_type==0x0001) && (font_type==0x0001) && (font_codepage==codepage_id)) {
-			// valid/matching codepage found
+            Bit16u number_of_fonts,font_data_length;
+            number_of_fonts=host_readw(&cpi_buf[font_data_header_pt+0x02]);
+            font_data_length=host_readw(&cpi_buf[font_data_header_pt+0x04]);
 
-			Bit16u number_of_fonts,font_data_length;
-			number_of_fonts=host_readw(&cpi_buf[font_data_header_pt+0x02]);
-			font_data_length=host_readw(&cpi_buf[font_data_header_pt+0x04]);
+            bool font_changed=false;
+            Bit32u font_data_start=font_data_header_pt+0x06;
 
-			bool font_changed=false;
-			Bit32u font_data_start=font_data_header_pt+0x06;
+            // load all fonts if possible
+            for (Bit16u current_font=0; current_font<number_of_fonts; current_font++) {
+                Bit8u font_height=cpi_buf[font_data_start];
+                font_data_start+=6;
+                if (font_height==0x10) {
+                    // 16x8 font
+                    PhysPt font16pt=Real2Phys(int10.rom.font_16);
+                    for (Bitu i=0;i<256*16;i++) {
+                        phys_writeb(font16pt+i,cpi_buf[font_data_start+i]);
+                    }
+                    // terminate alternate list to prevent loading
+                    phys_writeb(Real2Phys(int10.rom.font_16_alternate),0);
+                    font_changed=true;
+                } else if (font_height==0x0e) {
+                    // 14x8 font
+                    PhysPt font14pt=Real2Phys(int10.rom.font_14);
+                    for (Bitu i=0;i<256*14;i++) {
+                        phys_writeb(font14pt+i,cpi_buf[font_data_start+i]);
+                    }
+                    // terminate alternate list to prevent loading
+                    phys_writeb(Real2Phys(int10.rom.font_14_alternate),0);
+                    font_changed=true;
+                } else if (font_height==0x08) {
+                    // 8x8 fonts
+                    PhysPt font8pt=Real2Phys(int10.rom.font_8_first);
+                    for (Bitu i=0;i<128*8;i++) {
+                        phys_writeb(font8pt+i,cpi_buf[font_data_start+i]);
+                    }
+                    font8pt=Real2Phys(int10.rom.font_8_second);
+                    for (Bitu i=0;i<128*8;i++) {
+                        phys_writeb(font8pt+i,cpi_buf[font_data_start+i+128*8]);
+                    }
+                    font_changed=true;
+                }
+                font_data_start+=font_height*256;
+            }
 
-			// load all fonts if possible
-			for (Bit16u current_font=0; current_font<number_of_fonts; current_font++) {
-				Bit8u font_height=cpi_buf[font_data_start];
-				font_data_start+=6;
-				if (font_height==0x10) {
-					// 16x8 font
-					PhysPt font16pt=Real2Phys(int10.rom.font_16);
-					for (Bitu i=0;i<256*16;i++) {
-						phys_writeb(font16pt+i,cpi_buf[font_data_start+i]);
-					}
-					// terminate alternate list to prevent loading
-					phys_writeb(Real2Phys(int10.rom.font_16_alternate),0);
-					font_changed=true;
-				} else if (font_height==0x0e) {
-					// 14x8 font
-					PhysPt font14pt=Real2Phys(int10.rom.font_14);
-					for (Bitu i=0;i<256*14;i++) {
-						phys_writeb(font14pt+i,cpi_buf[font_data_start+i]);
-					}
-					// terminate alternate list to prevent loading
-					phys_writeb(Real2Phys(int10.rom.font_14_alternate),0);
-					font_changed=true;
-				} else if (font_height==0x08) {
-					// 8x8 fonts
-					PhysPt font8pt=Real2Phys(int10.rom.font_8_first);
-					for (Bitu i=0;i<128*8;i++) {
-						phys_writeb(font8pt+i,cpi_buf[font_data_start+i]);
-					}
-					font8pt=Real2Phys(int10.rom.font_8_second);
-					for (Bitu i=0;i<128*8;i++) {
-						phys_writeb(font8pt+i,cpi_buf[font_data_start+i+128*8]);
-					}
-					font_changed=true;
-				}
-				font_data_start+=font_height*256;
-			}
+            LOG(LOG_BIOS,LOG_NORMAL)("Codepage %i successfully loaded",codepage_id);
 
-			LOG(LOG_BIOS,LOG_NORMAL)("Codepage %i successfully loaded",codepage_id);
+            // set codepage entries
+            dos.loaded_codepage=(Bit16u)(codepage_id&0xffff);
 
-			// set codepage entries
-			dos.loaded_codepage=(Bit16u)(codepage_id&0xffff);
+            // update font if necessary
+            if (font_changed && (CurMode->type==M_TEXT) && (IS_EGAVGA_ARCH)) {
+                INT10_ReloadFont();
+            }
+            INT10_SetupRomMemoryChecksum();
 
-			// update font if necessary
-			if (font_changed && (CurMode->type==M_TEXT) && (IS_EGAVGA_ARCH)) {
-				INT10_ReloadFont();
-			}
-			INT10_SetupRomMemoryChecksum();
+            return KEYB_NOERROR;
+        }
 
-			return KEYB_NOERROR;
-		}
+        start_pos=host_readd(&cpi_buf[start_pos]);
+        start_pos+=2;
+    }
 
-		start_pos=host_readd(&cpi_buf[start_pos]);
-		start_pos+=2;
-	}
+    LOG(LOG_BIOS,LOG_ERROR)("Codepage %i not found",codepage_id);
 
-	LOG(LOG_BIOS,LOG_ERROR)("Codepage %i not found",codepage_id);
-
-	return KEYB_INVALIDCPFILE;
+    return KEYB_INVALIDCPFILE;
 }
 
 Bitu keyboard_layout::switch_keyboard_layout(const char* new_layout, keyboard_layout*& created_layout, Bit32s& tried_cp) {
