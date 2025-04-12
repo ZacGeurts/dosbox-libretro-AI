@@ -3,7 +3,7 @@ Up to 300% speed update so far. <BR />
 The buildbot may not be using dynrec so it may only be like 30% update.<BR />
 I cleaned up all the warnings so there may actually be a slight speed hit while updating.<BR />
 Is it faster or not? Unnuno. Probably and maybe by a lot. WIP and updates will be coming soon.<BR />
-(Barring fould play)<BR />
+(Barring foul play)<BR />
 I will be eventually getting more information on what is being achieved. Still a new project.<BR />
 Press space bar to run the emulator full speed. <BR />
 You can view the framerate and other setting in Config - On screen Notifications - Notification Visibility <BR />
