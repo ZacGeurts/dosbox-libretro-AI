@@ -523,34 +523,34 @@ void FAKEftime(struct FAKEtimeb* tb)
 
 
 static void BIOS_HostTimeSync() {
-	Bit32u milli = 0;
-	/* Setup time and date */
-	struct timeb timebuffer;
-	ftime(&timebuffer);
-	
-	struct tm *loctime;
-	loctime = localtime (&timebuffer.time);
-	milli = (Bit32u) timebuffer.millitm;
+    Bit32u milli = 0;
+    /* Setup time and date */
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    
+    struct tm *loctime;
+    loctime = localtime(&ts.tv_sec);
+    milli = static_cast<Bit32u>(ts.tv_nsec / 1000000);
 
-	/*
-	loctime->tm_hour = 23;
-	loctime->tm_min = 59;
-	loctime->tm_sec = 45;
-	loctime->tm_mday = 28;
-	loctime->tm_mon = 2-1;
-	loctime->tm_year = 2007 - 1900;
-	*/
+    /*
+    loctime->tm_hour = 23;
+    loctime->tm_min = 59;
+    loctime->tm_sec = 45;
+    loctime->tm_mday = 28;
+    loctime->tm_mon = 2-1;
+    loctime->tm_year = 2007 - 1900;
+    */
 
-	dos.date.day=(Bit8u)loctime->tm_mday;
-	dos.date.month=(Bit8u)loctime->tm_mon+1;
-	dos.date.year=(Bit16u)loctime->tm_year+1900;
+    dos.date.day = static_cast<Bit8u>(loctime->tm_mday);
+    dos.date.month = static_cast<Bit8u>(loctime->tm_mon + 1);
+    dos.date.year = static_cast<Bit16u>(loctime->tm_year + 1900);
 
-	Bit32u ticks=(Bit32u)(((double)(
-		loctime->tm_hour*3600*1000+
-		loctime->tm_min*60*1000+
-		loctime->tm_sec*1000+
-		milli))*(((double)PIT_TICK_RATE/65536.0)/1000.0));
-	mem_writed(BIOS_TIMER,ticks);
+    Bit32u ticks = static_cast<Bit32u>(((double)(
+        loctime->tm_hour * 3600 * 1000 +
+        loctime->tm_min * 60 * 1000 +
+        loctime->tm_sec * 1000 +
+        milli)) * (((double)PIT_TICK_RATE / 65536.0) / 1000.0));
+    mem_writed(BIOS_TIMER, ticks);
 }
 
 static Bitu INT8_Handler(void) {
