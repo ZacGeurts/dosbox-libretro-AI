@@ -1,5 +1,6 @@
 # DOSBOX-Grok3-AI<BR />
 This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
+Why not try it with those? I want something old to update. This for fun, nothing much else.<BR />
 If anything comes of this project then it will likely be incorporated by those with the talent.<BR />
 Up to 300% speed update so far? Enabling dynrec is a massive jump.<BR />
 I opened a ticket on the original dosbox.libretro to see if fixed build options can mainline into the build.<BR />
