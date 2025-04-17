@@ -1,6 +1,6 @@
 # DOSBOX-Grok3-AI<BR />
 
-# Currently down for updates. Overwrote some code before uploading.
+# Currently down for updates. Overwrote some code before uploading. Expect segfault or worse while this message is up.
 
 This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice versa)<BR />
 Why not try it with those? I want something old to update. This for fun, nothing much else.<BR />
