@@ -24,6 +24,8 @@
 
 #include "config.h"
 
+extern retro_log_printf_t log_cb;
+
 GCC_ATTRIBUTE(noreturn) void E_Exit(const char * message,...) GCC_ATTRIBUTE( __format__(__printf__, 1, 2));
 
 void MSG_Add(const char*,const char*); //add messages to the internal languagefile
