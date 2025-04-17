@@ -34,6 +34,8 @@
 #include <string>
 #include <time.h>
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 static SHELL_Cmd cmd_list[]={
 {	"DIR",		0,			&DOS_Shell::CMD_DIR,		"SHELL_CMD_DIR_HELP"},
@@ -87,25 +89,24 @@ static void StripSpaces(char*&args,char also) {
 		args++;
 }
 
-static char* ExpandDot(char*args, char* buffer) {
-	if(*args == '.') {
-		if(*(args+1) == 0){
-			strcpy(buffer,"*.*");
-			return buffer;
-		}
-		if( (*(args+1) != '.') && (*(args+1) != '\\') ) {
-			buffer[0] = '*';
-			buffer[1] = 0;
-			strcat(buffer,args);
-			return buffer;
-		} else
-			strcpy (buffer, args);
-	}
-	else strcpy(buffer,args);
-	return buffer;
+static char* ExpandDot(char* args, char* buffer) {
+    if (args[0] == '.') {
+        if (args[1] == '\0') {
+            buffer[0] = '*';
+            buffer[1] = '.';
+            buffer[2] = '*';
+            buffer[3] = '\0';
+            return buffer;
+        }
+        if (args[1] != '.' && args[1] != '\\') {
+            buffer[0] = '*';
+            strcpy(buffer + 1, args);
+            return buffer;
+        }
+    }
+    strcpy(buffer, args);
+    return buffer;
 }
-
-
 
 bool DOS_Shell::CheckConfig(char* cmd_in,char*line) {
 	Section* test = control->GetSectionFromProperty(cmd_in);
@@ -425,178 +426,190 @@ static void FormatNumber(Bit32u num,char * buf) {
 	sprintf(buf,"%d",numb);
 }	
 
-void DOS_Shell::CMD_DIR(char * args) {
-	HELP("DIR");
-	char numformat[16];
-	char path[DOS_PATHLENGTH];
-	char sargs[CROSS_LEN];
+void DOS_Shell::CMD_DIR(char *args) {
+    HELP("DIR");
+    char numformat[16], path[DOS_PATHLENGTH], sargs[CROSS_LEN], buffer[CROSS_LEN];
+    Bit32u byte_count = 0, file_count = 0, dir_count = 0;
+    Bitu w_count = 0, p_count = 0;
+    
+    // Handle DIRCMD environment variable
+    std::string line;
+    if (GetEnvStr("DIRCMD", line)) {
+        std::string::size_type idx = line.find('=');
+        if (idx != std::string::npos) {
+            line = std::string(args) + " " + line.substr(idx + 1);
+            args = const_cast<char*>(line.c_str());
+        }
+    }
 
-	std::string line;
-	if(GetEnvStr("DIRCMD",line)){
-		std::string::size_type idx = line.find('=');
-		std::string value=line.substr(idx +1 , std::string::npos);
-		line = std::string(args) + " " + value;
-		args=const_cast<char*>(line.c_str());
-	}
-   
-	bool optW=ScanCMDBool(args,"W");
-	ScanCMDBool(args,"S");
-	bool optP=ScanCMDBool(args,"P");
-	if (ScanCMDBool(args,"WP") || ScanCMDBool(args,"PW")) {
-		optW=optP=true;
-	}
-	bool optB=ScanCMDBool(args,"B");
-	bool optAD=ScanCMDBool(args,"AD");
-	char * rem=ScanCMDRemain(args);
-	if (rem) {
-		WriteOut(MSG_Get("SHELL_ILLEGAL_SWITCH"),rem);
-		return;
-	}
-	Bit32u byte_count,file_count,dir_count;
-	Bitu w_count=0;
-	Bitu p_count=0;
-	Bitu w_size = optW?5:1;
-	byte_count=file_count=dir_count=0;
+    // Parse command-line options
+    bool optW = ScanCMDBool(args, "W");
+    bool optS = ScanCMDBool(args, "S");
+    bool optP = ScanCMDBool(args, "P");
+    if (ScanCMDBool(args, "WP") || ScanCMDBool(args, "PW")) {
+        optW = optP = true;
+    }
+    bool optB = ScanCMDBool(args, "B");
+    bool optAD = ScanCMDBool(args, "AD");
+    char *rem = ScanCMDRemain(args);
+    if (rem) {
+        WriteOut(MSG_Get("SHELL_ILLEGAL_SWITCH"), rem);
+        return;
+    }
 
-	char buffer[CROSS_LEN];
-	args = trim(args);
-	size_t argLen = strlen(args);
-	if (argLen == 0) {
-		strcpy(args,"*.*"); //no arguments.
-	} else {
-		switch (args[argLen-1])
-		{
-		case '\\':	// handle \, C:\, etc.
-		case ':' :	// handle C:, etc.
-			strcat(args,"*.*");
-			break;
-		default:
-			break;
-		}
-	}
-	args = ExpandDot(args,buffer);
+    // Normalize arguments
+    args = trim(args);
+    size_t argLen = strlen(args);
+    if (argLen == 0) {
+        strcpy(args, "*.*");
+    } else if (args[argLen - 1] == '\\' || args[argLen - 1] == ':') {
+        strcat(args, "*.*");
+    }
+    args = ExpandDot(args, buffer);
 
-	if (!strrchr(args,'*') && !strrchr(args,'?')) {
-		Bit16u attribute=0;
-		if(!DOS_GetSFNPath(args,sargs,false)) {
-			WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
-			return;
-		}
-		if(DOS_GetFileAttr(sargs,&attribute) && (attribute&DOS_ATTR_DIRECTORY) ) {
-			DOS_FindFirst(sargs,0xffff & ~DOS_ATTR_VOLUME);
-			DOS_DTA dta(dos.dta());
-			strcpy(args,sargs);
-			strcat(args,"\\*.*");	// if no wildcard and a directory, get its files
-		}
-	}
-	if (!DOS_GetSFNPath(args,sargs,false)) {
-		WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
-		return;
-	}
-	sprintf(args,"\"%s\"",sargs);
-	if (!strrchr(args,'.')) {
-		strcat(args,".*");	// if no extension, get them all
-	}
+    // Handle non-wildcard directories
+    if (!strrchr(args, '*') && !strrchr(args, '?')) {
+        Bit16u attribute = 0;
+        if (DOS_GetSFNPath(args, sargs, false) && DOS_GetFileAttr(sargs, &attribute) && 
+            (attribute & DOS_ATTR_DIRECTORY)) {
+            strcpy(args, sargs);
+            strcat(args, "\\*.*");
+        }
+    }
 
-	/* Make a full path in the args */
-	if (!DOS_Canonicalize(args,path)) {
-		WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
-		return;
-	}
-	*(strrchr(path,'\\')+1)=0;
-	if (!DOS_GetSFNPath(path,sargs,true)) {
-		WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
-		return;
-	}
-	if (*(sargs+strlen(sargs)-1) != '\\') strcat(sargs,"\\");
-	if (!optB) WriteOut(MSG_Get("SHELL_CMD_DIR_INTRO"),sargs);
+    // Convert to SFN and quote path
+    if (!DOS_GetSFNPath(args, sargs, false)) {
+        WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
+        return;
+    }
+    // Fix sprintf warning: Use snprintf with bounds checking
+    if (strlen(sargs) > CROSS_LEN - 3) { // 2 quotes + null
+        WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
+        return;
+    }
+    snprintf(args, CROSS_LEN, "\"%s\"", sargs);
+    if (!strrchr(args, '.')) {
+        strcat(args, "*.*"); // Changed from ".*" to "*.*" for consistency
+    }
 
-	/* Command uses dta so set it to our internal dta */
-	RealPt save_dta=dos.dta();
-	dos.dta(dos.tables.tempdta);
-	DOS_DTA dta(dos.dta());
-	bool ret=DOS_FindFirst(args,0xffff & ~DOS_ATTR_VOLUME);
-	if (!ret) {
-		if (!optB) WriteOut(MSG_Get("SHELL_CMD_FILE_NOT_FOUND"),args);
-		dos.dta(save_dta);
-		return;
-	}
- 
-	do {    /* File name and extension */
-		char name[DOS_NAMELENGTH_ASCII], lname[LFN_NAMELENGTH+1];
-		Bit32u size;Bit16u date;Bit16u time;Bit8u attr;
-		dta.GetResult(name,lname,size,date,time,attr);
+    // Canonicalize path
+    if (!DOS_Canonicalize(args, path)) {
+        WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
+        return;
+    }
+    char *last_slash = strrchr(path, '\\');
+    if (last_slash) {
+        last_slash[1] = '\0';
+    }
+    if (!DOS_GetSFNPath(path, sargs, true)) {
+        WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
+        return;
+    }
+    if (sargs[strlen(sargs) - 1] != '\\') {
+        strcat(sargs, "\\");
+    }
+    if (!optB) {
+        WriteOut(MSG_Get("SHELL_CMD_DIR_INTRO"), sargs);
+    }
 
-		/* Skip non-directories if option AD is present */
-		if(optAD && !(attr&DOS_ATTR_DIRECTORY) ) continue;
-		
-		/* output the file */
-		if (optB) {
-			// this overrides pretty much everything
-			if (strcmp(".",uselfn?lname:name) && strcmp("..",uselfn?lname:name)) {
-				WriteOut("%s\n",uselfn?lname:name);
-			}
-		} else {
-			char * ext = empty_string;
-			if (!optW && (name[0] != '.')) {
-				ext = strrchr(name, '.');
-				if (!ext) ext = empty_string;
-				else *ext++ = 0;
-			}
-			Bit8u day	= (Bit8u)(date & 0x001f);
-			Bit8u month	= (Bit8u)((date >> 5) & 0x000f);
-			Bit16u year = (Bit16u)((date >> 9) + 1980);
-			Bit8u hour	= (Bit8u)((time >> 5 ) >> 6);
-			Bit8u minute = (Bit8u)((time >> 5) & 0x003f);
+    // Set up DTA and find files
+    RealPt save_dta = dos.dta();
+    dos.dta(dos.tables.tempdta);
+    DOS_DTA dta(dos.dta());
+    if (!DOS_FindFirst(args, 0xffff & ~DOS_ATTR_VOLUME)) {
+        if (!optB) {
+            WriteOut(MSG_Get("SHELL_CMD_FILE_NOT_FOUND"), args);
+        }
+        dos.dta(save_dta);
+        return;
+    }
 
-			if (attr & DOS_ATTR_DIRECTORY) {
-				if (optW) {
-					WriteOut("[%s]",name);
-					size_t namelen = strlen(name);
-					if (namelen <= 14) {
-						for (size_t i=14-namelen;i>0;i--) WriteOut(" ");
-					}
-				} else {
-					WriteOut("%-8s %-3s   %-16s %02d-%02d-%04d %2d:%02d %s\n",name,ext,"<DIR>",day,month,year,hour,minute,uselfn?lname:"");
-				}
-				dir_count++;
-			} else {
-				if (optW) {
-					WriteOut("%-16s",name);
-				} else {
-					FormatNumber(size,numformat);
-					WriteOut("%-8s %-3s   %16s %02d-%02d-%04d %2d:%02d %s\n",name,ext,numformat,day,month,year,hour,minute,uselfn?lname:"");
-				}
-				file_count++;
-				byte_count+=size;
-			}
-			if (optW) {
-				w_count++;
-			}
-		}
-		if (optP && !(++p_count%(22*w_size))) {
-			CMD_PAUSE(empty_string);
-		}
-	} while ( (ret=DOS_FindNext()) );
-	if (optW) {
-		if (w_count%5)	WriteOut("\n");
-	}
-	if (!optB) {
-		/* Show the summary of results */
-		FormatNumber(byte_count,numformat);
-		WriteOut(MSG_Get("SHELL_CMD_DIR_BYTES_USED"),file_count,numformat);
-		Bit8u drive=dta.GetSearchDrive();
-		//TODO Free Space
-		Bitu free_space=1024*1024*100;
-		if (Drives[drive]) {
-			Bit16u bytes_sector;Bit8u sectors_cluster;Bit16u total_clusters;Bit16u free_clusters;
-			Drives[drive]->AllocationInfo(&bytes_sector,&sectors_cluster,&total_clusters,&free_clusters);
-			free_space=bytes_sector*sectors_cluster*free_clusters;
-		}
-		FormatNumber(free_space,numformat);
-		WriteOut(MSG_Get("SHELL_CMD_DIR_BYTES_FREE"),dir_count,numformat);
-	}
-	dos.dta(save_dta);
+    // List files
+    Bitu w_size = optW ? 5 : 1;
+    do {
+        char name[DOS_NAMELENGTH_ASCII], lname[LFN_NAMELENGTH + 1];
+        Bit32u size;
+        Bit16u date, time;
+        Bit8u attr;
+        dta.GetResult(name, lname, size, date, time, attr);
+
+        if (optAD && !(attr & DOS_ATTR_DIRECTORY)) {
+            continue;
+        }
+
+        if (optB) {
+            if (strcmp(".", uselfn ? lname : name) && strcmp("..", uselfn ? lname : name)) {
+                WriteOut("%s\n", uselfn ? lname : name);
+            }
+        } else {
+            char *ext = empty_string;
+            if (!optW && name[0] != '.') {
+                ext = strrchr(name, '.');
+                if (ext) {
+                    *ext++ = '\0';
+                } else {
+                    ext = empty_string;
+                }
+            }
+            Bit8u day = (Bit8u)(date & 0x001f);
+            Bit8u month = (Bit8u)((date >> 5) & 0x000f);
+            Bit16u year = (Bit16u)((date >> 9) + 1980);
+            Bit8u hour = (Bit8u)((time >> 5) >> 6);
+            Bit8u minute = (Bit8u)((time >> 5) & 0x003f);
+
+            if (attr & DOS_ATTR_DIRECTORY) {
+                if (optW) {
+                    WriteOut("[%s]", name);
+                    size_t namelen = strlen(name);
+                    if (namelen <= 14) {
+                        for (size_t i = 14 - namelen; i > 0; --i) {
+                            WriteOut(" ");
+                        }
+                    }
+                } else {
+                    WriteOut("%-8s %-3s   %-16s %02d-%02d-%04d %2d:%02d %s\n",
+                             name, ext, "<DIR>", day, month, year, hour, minute, uselfn ? lname : "");
+                }
+                ++dir_count;
+            } else {
+                if (optW) {
+                    WriteOut("%-16s", name);
+                } else {
+                    FormatNumber(size, numformat);
+                    WriteOut("%-8s %-3s   %16s %02d-%02d-%04d %2d:%02d %s\n",
+                             name, ext, numformat, day, month, year, hour, minute, uselfn ? lname : "");
+                }
+                ++file_count;
+                byte_count += size;
+            }
+            if (optW) {
+                ++w_count;
+            }
+        }
+        if (optP && !(++p_count % (22 * w_size))) {
+            CMD_PAUSE(empty_string);
+        }
+    } while (DOS_FindNext());
+
+    // Finalize output
+    if (optW && w_count % 5) {
+        WriteOut("\n");
+    }
+    if (!optB) {
+        FormatNumber(byte_count, numformat);
+        WriteOut(MSG_Get("SHELL_CMD_DIR_BYTES_USED"), file_count, numformat);
+        Bitu free_space = 1024 * 1024 * 100;
+        Bit8u drive = dta.GetSearchDrive();
+        if (Drives[drive]) {
+            Bit16u bytes_sector, total_clusters, free_clusters;
+            Bit8u sectors_cluster;
+            Drives[drive]->AllocationInfo(&bytes_sector, &sectors_cluster, &total_clusters, &free_clusters);
+            free_space = bytes_sector * sectors_cluster * free_clusters;
+        }
+        FormatNumber(free_space, numformat);
+        WriteOut(MSG_Get("SHELL_CMD_DIR_BYTES_FREE"), dir_count, numformat);
+    }
+    dos.dta(save_dta);
 }
 
 struct copysource {
