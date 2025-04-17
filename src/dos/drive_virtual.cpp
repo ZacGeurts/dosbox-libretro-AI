@@ -204,35 +204,40 @@ bool Virtual_Drive::FileExists(const char* name){
 	return false;
 }
 
-bool Virtual_Drive::FindFirst(char * _dir,DOS_DTA & dta,bool fcb_findfirst) {
-	search_file=first_file;
-	Bit8u attr;char pattern[CROSS_LEN];
-	dta.GetSearchParams(attr,pattern,true);
-	if (attr == DOS_ATTR_VOLUME) {
-		dta.SetResult("DOSBOX","DOSBOX",0,0,0,DOS_ATTR_VOLUME);
-		return true;
-	} else if ((attr & DOS_ATTR_VOLUME) && !fcb_findfirst) {
-		if (WildFileCmp("DOSBOX",pattern)) {
-			dta.SetResult("DOSBOX","DOSBOX",0,0,0,DOS_ATTR_VOLUME);
-			return true;
-		}
-	}
-	return FindNext(dta);
+bool Virtual_Drive::FindFirst(char * _dir, DOS_DTA & dta, bool fcb_findfirst) {
+    search_file = first_file;
+    Bit8u attr;
+    char pattern[CROSS_LEN];
+    dta.GetSearchParams(attr, pattern, true);
+    
+    if (attr == DOS_ATTR_VOLUME) {
+        dta.SetResult("DOSBOX", "DOSBOX", 0, 0, 0, DOS_ATTR_VOLUME);
+        return true;
+    }
+    if ((attr & DOS_ATTR_VOLUME) && !fcb_findfirst && WildFileCmp("DOSBOX", pattern)) {
+        dta.SetResult("DOSBOX", "DOSBOX", 0, 0, 0, DOS_ATTR_VOLUME);
+        return true;
+    }
+    return FindNext(dta);
 }
 
 bool Virtual_Drive::FindNext(DOS_DTA & dta) {
-	Bit8u attr;char pattern[CROSS_LEN];
-	dta.GetSearchParams(attr,pattern,true);
-	while (search_file) {
-		if (WildFileCmp(search_file->name,pattern)) {
-			dta.SetResult(search_file->name,search_file->lname,search_file->size,search_file->date,search_file->time,DOS_ATTR_ARCHIVE);
-			search_file=search_file->next;
-			return true;
-		}
-		search_file=search_file->next;
-	}
-	DOS_SetError(DOSERR_NO_MORE_FILES);
-	return false;
+    Bit8u attr;
+    char pattern[CROSS_LEN];
+    dta.GetSearchParams(attr, pattern, true);
+    
+    while (search_file) {
+        if (WildFileCmp(search_file->name, pattern)) {
+            dta.SetResult(search_file->name, search_file->lname, search_file->size, 
+                          search_file->date, search_file->time, DOS_ATTR_ARCHIVE);
+            search_file = search_file->next;
+            return true;
+        }
+        search_file = search_file->next;
+    }
+    
+    DOS_SetError(DOSERR_NO_MORE_FILES);
+    return false;
 }
 
 bool Virtual_Drive::GetFileAttr(char * name,Bit16u * attr) {

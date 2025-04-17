@@ -223,45 +223,60 @@ bool DOS_GetSFNPath(char const * const path, char * SFNPath, bool LFN) {
     Bit8u drive;
     char fulldir[DOS_PATHLENGTH], LFNPath[CROSS_LEN];
     char name[DOS_NAMELENGTH_ASCII], lname[LFN_NAMELENGTH];
-    int w = 0;
     DOS_DTA dta(dos.dta());
     Bit32u size;
     Bit16u date;
     Bit16u time;
     Bit8u attr;
-    if (!DOS_MakeName(path, fulldir, &drive)) return false;
-    sprintf(SFNPath, "%c:\\", drive + 'A');
+
+    if (!DOS_MakeName(path, fulldir, &drive)) {
+        return false;
+    }
+
+    SFNPath[0] = drive + 'A';
+    SFNPath[1] = ':';
+    SFNPath[2] = '\\';
+    SFNPath[3] = '\0';
     strcpy(LFNPath, SFNPath);
+
     strcpy(dir_current, Drives[drive]->curdir);
-    Drives[drive]->curdir, "";
+    Drives[drive]->curdir[0] = '\0';
+
     p = fulldir;
-    if (*p == 0) return true;
+    if (*p == '\0') {
+        return true;
+    }
+
     for (char *s = strchr(p, '\\'); s != NULL; s = strchr(p, '\\')) {
-        *s = 0;
+        *s = '\0';
         size_t len_SFNPath = strlen(SFNPath);
         size_t len_p = strlen(p);
+
         if (SFNPath[len_SFNPath - 1] == '\\') {
-            if (len_SFNPath + len_p + 3 > 254) { // 2 quotes + null
+            if (len_SFNPath + len_p + 3 > 254) {
                 LOG_MSG("DOS: Path %s%s too long", SFNPath, p);
-                Drives[drive]->curdir, dir_current;
+                strcpy(Drives[drive]->curdir, dir_current);
                 return false;
             }
             pdir[0] = '"';
             strcpy(pdir + 1, SFNPath);
             strcat(pdir, p);
-            strcat(pdir, "\"");
+            pdir[len_SFNPath + len_p + 1] = '"';
+            pdir[len_SFNPath + len_p + 2] = '\0';
         } else {
-            if (len_SFNPath + len_p + 4 > 254) { // 2 quotes + backslash + null
+            if (len_SFNPath + len_p + 4 > 254) {
                 LOG_MSG("DOS: Path %s\\%s too long", SFNPath, p);
-                Drives[drive]->curdir, dir_current;
+                strcpy(Drives[drive]->curdir, dir_current);
                 return false;
             }
             pdir[0] = '"';
             strcpy(pdir + 1, SFNPath);
-            strcat(pdir, "\\");
-            strcat(pdir, p);
-            strcat(pdir, "\"");
+            pdir[len_SFNPath + 1] = '\\';
+            strcpy(pdir + len_SFNPath + 2, p);
+            pdir[len_SFNPath + len_p + 2] = '"';
+            pdir[len_SFNPath + len_p + 3] = '\0';
         }
+
         if (!strrchr(p, '*') && !strrchr(p, '?')) {
             *s = '\\';
             p = s + 1;
@@ -269,11 +284,11 @@ bool DOS_GetSFNPath(char const * const path, char * SFNPath, bool LFN) {
                 dta.GetResult(name, lname, size, date, time, attr);
                 strcat(SFNPath, name);
                 strcat(LFNPath, lname);
-                Drives[drive]->curdir, SFNPath + 3;
+                strcpy(Drives[drive]->curdir, SFNPath + 3);
                 strcat(SFNPath, "\\");
                 strcat(LFNPath, "\\");
             } else {
-                Drives[drive]->curdir, dir_current;
+                strcpy(Drives[drive]->curdir, dir_current);
                 return false;
             }
         } else {
@@ -286,21 +301,40 @@ bool DOS_GetSFNPath(char const * const path, char * SFNPath, bool LFN) {
             break;
         }
     }
-    if (p != 0) {
+
+    if (*p != '\0') {
         size_t len_SFNPath = strlen(SFNPath);
         size_t len_p = strlen(p);
-        if (len_SFNPath + len_p + 3 > 254) { // 2 quotes + null
+        if (len_SFNPath + len_p + 3 > 254) {
             LOG_MSG("DOS: Path %s%s too long", SFNPath, p);
-            Drives[drive]->curdir, dir_current;
+            strcpy(Drives[drive]->curdir, dir_current);
             return false;
         }
         pdir[0] = '"';
         strcpy(pdir + 1, SFNPath);
         strcat(pdir, p);
-        strcat(pdir, "\"");
+        pdir[len_SFNPath + len_p + 1] = '"';
+        pdir[len_SFNPath + len_p + 2] = '\0';
+        strcat(SFNPath, p);
+        strcat(LFNPath, p);
     }
-    Drives[drive]->curdir, dir_current;
-    if (LFN) strcpy(SFNPath, LFNPath);
+
+    // Safeguard: Correct ".*" to "*.*"
+    char *dot = strstr(SFNPath, ".*");
+    if (dot) {
+        memmove(dot + 1, dot, strlen(dot) + 1);
+        *dot = '*';
+    }
+    dot = strstr(LFNPath, ".*");
+    if (dot) {
+        memmove(dot + 1, dot, strlen(dot) + 1);
+        *dot = '*';
+    }
+
+    strcpy(Drives[drive]->curdir, dir_current);
+    if (LFN) {
+        strcpy(SFNPath, LFNPath);
+    }
     return true;
 }
 
@@ -444,48 +478,56 @@ bool DOS_Rename(char const * const oldname,char const * const newname) {
 	return false;
 }
 
-bool DOS_FindFirst(char * search,Bit16u attr,bool fcb_findfirst) {
-	LOG(LOG_FILES,LOG_NORMAL)("file search attributes %X name %s",attr,search);
-	DOS_DTA dta(dos.dta());
-	Bit8u drive;char fullsearch[DOS_PATHLENGTH];
-	char dir[DOS_PATHLENGTH];char pattern[DOS_PATHLENGTH];
-	size_t len = strlen(search);
-	if(len && search[len - 1] == '\\' && !( (len > 2) && (search[len - 2] == ':') && (attr == DOS_ATTR_VOLUME) )) { 
-		//Dark Forces installer, but c:\ is allright for volume labels(exclusively set)
-		DOS_SetError(DOSERR_NO_MORE_FILES);
-		return false;
-	}
-	if (!DOS_MakeName(search,fullsearch,&drive)) return false;
-	//Check for devices. FindDevice checks for leading subdir as well
-	bool device = (DOS_FindDevice(search) != DOS_DEVICES);
-
-	/* Split the search in dir and pattern */
-	char * find_last;
-	find_last=strrchr(fullsearch,'\\');
-	if (!find_last) {	/*No dir */
-		strcpy(pattern,fullsearch);
-		dir[0]=0;
-	} else {
-		*find_last=0;
-		strcpy(pattern,find_last+1);
-		strcpy(dir,fullsearch);
-	}
-
-	sdrive=drive;
-	dta.SetupSearch(drive,(Bit8u)attr,pattern);
-
-	if(device) {
-		find_last = strrchr(pattern,'.');
-		if(find_last) *find_last = 0;
-		//TODO use current date and time
-		dta.SetResult(pattern,pattern,0,0,0,DOS_ATTR_DEVICE);
-		LOG(LOG_DOSMISC,LOG_WARN)("finding device %s",pattern);
-		return true;
-	}
-   
-	if (Drives[drive]->FindFirst(dir,dta,fcb_findfirst)) return true;
-	
-	return false;
+bool DOS_FindFirst(char * search, Bit16u attr, bool fcb_findfirst) {
+    printf("file search attributes %X name %s\n", attr, search);
+    DOS_DTA dta(dos.dta());
+    Bit8u drive;
+    char fullsearch[DOS_PATHLENGTH];
+    char dir[DOS_PATHLENGTH];
+    char pattern[DOS_PATHLENGTH];
+    size_t len = strlen(search);
+    if (len && search[len - 1] == '\\' && !( (len > 2) && (search[len - 2] == ':') && (attr == DOS_ATTR_VOLUME) )) { 
+        printf("Invalid trailing backslash in search '%s'\n", search);
+        DOS_SetError(DOSERR_NO_MORE_FILES);
+        return false;
+    }
+    if (!DOS_MakeName(search, fullsearch, &drive)) {
+        printf("DOS_MakeName failed for '%s'\n", search);
+        return false;
+    }
+    bool device = (DOS_FindDevice(search) != DOS_DEVICES);
+    char * find_last = strrchr(fullsearch, '\\');
+    if (!find_last) {
+        strcpy(pattern, fullsearch);
+        dir[0] = 0;
+    } else {
+        *find_last = 0;
+        strcpy(pattern, find_last + 1);
+        strcpy(dir, fullsearch);
+    }
+    printf("Searching drive %c: dir='%s' pattern='%s'\n", drive + 'A', dir, pattern);
+    sdrive = drive;
+    dta.SetupSearch(drive, (Bit8u)attr, pattern);
+    if (device) {
+        find_last = strrchr(pattern, '.');
+        if (find_last) *find_last = 0;
+        dta.SetResult(pattern, pattern, 0, 0, 0, DOS_ATTR_DEVICE);
+        printf("Found device %s\n", pattern);
+        return true;
+    }
+    if (!Drives[drive]) {
+        printf("Drive %c: not initialized\n", drive + 'A');
+        DOS_SetError(DOSERR_INVALID_DRIVE);
+        return false;
+    }
+    bool result = Drives[drive]->FindFirst(dir, dta, fcb_findfirst);
+    if (!result) {
+        printf("FindFirst failed on drive %c: dir='%s' pattern='%s'\n", drive + 'A', dir, pattern);
+        DOS_SetError(DOSERR_NO_MORE_FILES);
+    } else {
+        printf("FindFirst succeeded on drive %c:\n", drive + 'A');
+    }
+    return result;
 }
 
 bool DOS_FindNext(void) {
