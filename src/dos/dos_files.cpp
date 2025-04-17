@@ -352,14 +352,14 @@ bool DOS_GetCurrentDir(Bit8u drive,char * const buffer, bool LFN) {
     			LOG_MSG("DOS: Directory %s too long", Drives[drive]->curdir);
     			return false;
 			}
-			snprintf(cdir, 255, "\"%c:\\%s\"", drive + 'A', Drives[drive]->curdir);
+			fprintf(stderr, "\"%c:\\%s\"", drive + 'A', Drives[drive]->curdir);
 		}
 		else {
 			if (strlen(Drives[drive]->curdir) + 5 > 254) { // quote + drive + : + \ + null
     			LOG_MSG("DOS: Directory \\%s too long", Drives[drive]->curdir);
     			return false;
 			}
-			snprintf(cdir, 255, "%c:\\%s", drive + 'A', Drives[drive]->curdir);
+			fprintf(stderr, "%c:\\%s", drive + 'A', Drives[drive]->curdir);
 		}
 		if (!DOS_GetSFNPath(cdir,ldir,true))
 			return false;

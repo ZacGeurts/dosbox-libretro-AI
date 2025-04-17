@@ -1622,7 +1622,7 @@ static Bitu DOS_21Handler(void) {
 						if (s != 0 && reg_dh == 1) strcat(c,".");
 						for (i=0;i<3;i++) {
 							if (*(s+i) == 0) break;
-							sprintf(c,"%s%c",c,toupper(*(s+i)));
+							fprintf(stderr, "%s%c", c, toupper(*(s+i)));
 						}
 					}
 					MEM_BlockWrite(SegPhys(es)+reg_di,c,strlen(c)+1);
