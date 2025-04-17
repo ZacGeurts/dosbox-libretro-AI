@@ -38,12 +38,14 @@
 #include "setup.h"
 #include "dosbox.h"
 #include "mapper.h"
+#include "midi.h"
 #include "mixer.h"
 #include "control.h"
 #include "pic.h"
 #include "joystick.h"
 #include "ints/int10.h"
 #include "mem.h"
+#include <cstdio> // Add for snprintf
 
 #define RETRO_DEVICE_JOYSTICK RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)
 
@@ -99,7 +101,7 @@ retro_input_poll_t poll_cb = nullptr;
 retro_input_state_t input_cb = nullptr;
 retro_environment_t environ_cb = nullptr;
 retro_log_printf_t log_cb = nullptr;
-struct retro_midi_interface* retro_midi_interface = nullptr;
+//struct retro_midi_interface* retro_midi_interface = nullptr;
 
 /* DOSBox state */
 std::string loadPath;
@@ -414,39 +416,61 @@ void leave_thread(Bitu /*unused*/) noexcept {
 }
 
 void start_dosbox() {
+    char log_msg[256];
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Starting DOSBox, loadPath=%s, configPath=%s", loadPath.c_str(), configPath.c_str());
+    log_cb(RETRO_LOG_INFO, log_msg);
+
     std::array<const char*, 2> argv = {"dosbox", loadPath.empty() ? nullptr : loadPath.c_str()};
     CommandLine com_line(loadPath.empty() ? 1 : 2, argv.data());
     Config myconf(&com_line);
     control = &myconf;
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] CommandLine initialized, argc=%d", com_line.GetCount());
+    log_cb(RETRO_LOG_INFO, log_msg);
+
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Checking core variables");
+    log_cb(RETRO_LOG_INFO, log_msg);
     check_variables();
 
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Initializing DOSBox subsystems");
+    log_cb(RETRO_LOG_INFO, log_msg);
     DOSBOX_Init();
 
     if (!configPath.empty()) {
+        snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Parsing config file: %s", configPath.c_str());
+        log_cb(RETRO_LOG_INFO, log_msg);
         control->ParseConfigFile(configPath.c_str());
     }
 
     if (!is_restarting) {
+        snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Initializing Config");
+        log_cb(RETRO_LOG_INFO, log_msg);
         control->Init();
     }
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Re-checking core variables");
+    log_cb(RETRO_LOG_INFO, log_msg);
     check_variables();
 
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Switching to main thread");
+    log_cb(RETRO_LOG_INFO, log_msg);
     co_switch(mainThread);
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Scheduling frontend interrupt");
+    log_cb(RETRO_LOG_INFO, log_msg);
     PIC_AddEvent(leave_thread, 1000.0f / 60.0f, 0);
 
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Starting DOSBox main loop");
+    log_cb(RETRO_LOG_INFO, log_msg);
     try {
         control->StartUp();
+        snprintf(log_msg, sizeof(log_msg), "[DOSBOX] StartUp completed");
+        log_cb(RETRO_LOG_INFO, log_msg);
     } catch (int) {
-        if (log_cb) {
-            log_cb(RETRO_LOG_WARN, "Frontend asked to exit\n");
-        }
+        snprintf(log_msg, sizeof(log_msg), "[DOSBOX] Frontend requested exit during StartUp");
+        log_cb(RETRO_LOG_WARN, log_msg);
         return;
     }
 
-    if (log_cb) {
-        log_cb(RETRO_LOG_WARN, "DOSBox asked to exit\n");
-    }
-
+    snprintf(log_msg, sizeof(log_msg), "[DOSBOX] DOSBox requested exit");
+    log_cb(RETRO_LOG_WARN, log_msg);
     dosbox_exit = true;
 }
 
@@ -463,15 +487,26 @@ void wrap_dosbox() {
 }
 
 void init_threads() noexcept {
+    char log_msg[256];
     if (!emuThread && !mainThread) {
+        snprintf(log_msg, sizeof(log_msg), "[THREAD] Creating main and emulator threads");
+        log_cb(RETRO_LOG_INFO, log_msg);
         mainThread = co_active();
 #ifdef __GENODE__
         emuThread = co_create((1 << 16) * sizeof(void*), wrap_dosbox);
 #else
         emuThread = co_create(65536 * sizeof(void*) * 16, wrap_dosbox);
 #endif
-    } else if (log_cb) {
-        log_cb(RETRO_LOG_WARN, "Init called more than once\n");
+        if (!emuThread) {
+            snprintf(log_msg, sizeof(log_msg), "[THREAD] Failed to create emulator thread");
+            log_cb(RETRO_LOG_ERROR, log_msg);
+        } else {
+            snprintf(log_msg, sizeof(log_msg), "[THREAD] Emulator thread created successfully");
+            log_cb(RETRO_LOG_INFO, log_msg);
+        }
+    } else {
+        snprintf(log_msg, sizeof(log_msg), "[THREAD] Init called more than once");
+        log_cb(RETRO_LOG_WARN, log_msg);
     }
 }
 
@@ -604,60 +639,83 @@ void retro_get_system_av_info(retro_system_av_info* info) {
 }
 
 void retro_init() {
+    char log_msg[256];
     struct retro_log_callback log;
     if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log)) {
         log_cb = log.log;
+        snprintf(log_msg, sizeof(log_msg), "[INIT] Logger interface initialized");
+        log_cb(RETRO_LOG_INFO, log_msg);
     } else {
         log_cb = nullptr;
-    }
-
-    if (log_cb) {
-        log_cb(RETRO_LOG_INFO, "Logger interface initialized\n");
+        snprintf(log_msg, sizeof(log_msg), "[INIT] Logger interface failed to initialize");
+        log_cb(RETRO_LOG_WARN, log_msg);
     }
 
     static struct retro_midi_interface midi_interface;
     if (environ_cb(RETRO_ENVIRONMENT_GET_MIDI_INTERFACE, &midi_interface)) {
         retro_midi_interface = &midi_interface;
-        if (log_cb) {
-            log_cb(RETRO_LOG_INFO, "MIDI interface initialized\n");
-        }
+        snprintf(log_msg, sizeof(log_msg), "[INIT] MIDI interface initialized");
+        log_cb(RETRO_LOG_INFO, log_msg);
     } else {
         retro_midi_interface = nullptr;
-        if (log_cb) {
-            log_cb(RETRO_LOG_INFO, "MIDI interface unavailable\n");
-        }
+        snprintf(log_msg, sizeof(log_msg), "[INIT] MIDI interface unavailable");
+        log_cb(RETRO_LOG_INFO, log_msg);
     }
 
     RDOSGFXcolorMode = RETRO_PIXEL_FORMAT_XRGB8888;
-    environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &RDOSGFXcolorMode);
+    if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &RDOSGFXcolorMode)) {
+        snprintf(log_msg, sizeof(log_msg), "[INIT] Pixel format set to XRGB8888");
+        log_cb(RETRO_LOG_INFO, log_msg);
+    } else {
+        snprintf(log_msg, sizeof(log_msg), "[INIT] Failed to set pixel format");
+        log_cb(RETRO_LOG_ERROR, log_msg);
+    }
 
+    snprintf(log_msg, sizeof(log_msg), "[INIT] Starting thread initialization");
+    log_cb(RETRO_LOG_INFO, log_msg);
     init_threads();
+    snprintf(log_msg, sizeof(log_msg), "[INIT] Thread initialization completed");
+    log_cb(RETRO_LOG_INFO, log_msg);
 }
 
 void retro_deinit() {
+    char log_msg[256];
+    snprintf(log_msg, sizeof(log_msg), "[DEINIT] Entering retro_deinit, frontend_exit=%d, dosbox_exit=%d", frontend_exit, dosbox_exit);
+    log_cb(RETRO_LOG_INFO, log_msg);
+
     frontend_exit = !dosbox_exit;
 
     if (emuThread) {
         if (frontend_exit) {
+            snprintf(log_msg, sizeof(log_msg), "[DEINIT] Frontend exit, switching to emulator thread");
+            log_cb(RETRO_LOG_INFO, log_msg);
             co_switch(emuThread);
         }
+        snprintf(log_msg, sizeof(log_msg), "[DEINIT] Deleting emulator thread");
+        log_cb(RETRO_LOG_INFO, log_msg);
         co_delete(emuThread);
         emuThread = nullptr;
     }
+    snprintf(log_msg, sizeof(log_msg), "[DEINIT] Deinitialization complete");
+    log_cb(RETRO_LOG_INFO, log_msg);
 }
 
 bool retro_load_game(const retro_game_info* game) {
+    char log_msg[256];
     if (!emuThread) {
-        if (log_cb) {
-            log_cb(RETRO_LOG_WARN, "Load game called without emulator thread\n");
-        }
+        snprintf(log_msg, sizeof(log_msg), "[LOAD] Load game called without emulator thread");
+        log_cb(RETRO_LOG_ERROR, log_msg);
         return false;
     }
 
     const char slash = PATH_SEPARATOR;
+    snprintf(log_msg, sizeof(log_msg), "[LOAD] Starting game load, game=%p", game);
+    log_cb(RETRO_LOG_INFO, log_msg);
 
     if (game) {
         loadPath = normalize_path(game->path);
+        snprintf(log_msg, sizeof(log_msg), "[LOAD] Game path: %s", loadPath.c_str());
+        log_cb(RETRO_LOG_INFO, log_msg);
         if (const size_t lastDot = loadPath.find_last_of('.'); lastDot != std::string::npos) {
             std::string extension = loadPath.substr(lastDot + 1);
             std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -665,17 +723,25 @@ bool retro_load_game(const retro_game_info* game) {
             if (extension == "conf") {
                 configPath = std::move(loadPath);
                 loadPath.clear();
+                snprintf(log_msg, sizeof(log_msg), "[LOAD] Config file detected: %s", configPath.c_str());
+                log_cb(RETRO_LOG_INFO, log_msg);
             } else if (configPath.empty()) {
                 configPath = normalize_path(retro_system_directory + slash + "DOSbox" + slash + "dosbox-libretro.conf");
-                if (log_cb) {
-                    log_cb(RETRO_LOG_INFO, "Loading default configuration %s\n", configPath.c_str());
-                }
+                snprintf(log_msg, sizeof(log_msg), "[LOAD] Loading default config: %s", configPath.c_str());
+                log_cb(RETRO_LOG_INFO, log_msg);
             }
         }
+    } else {
+        snprintf(log_msg, sizeof(log_msg), "[LOAD] No game provided, using default config");
+        log_cb(RETRO_LOG_INFO, log_msg);
     }
 
+    snprintf(log_msg, sizeof(log_msg), "[LOAD] Switching to emulator thread");
+    log_cb(RETRO_LOG_INFO, log_msg);
     co_switch(emuThread);
     samplesPerFrame = MIXER_RETRO_GetFrequency() / 60;
+    snprintf(log_msg, sizeof(log_msg), "[LOAD] Game load completed, samplesPerFrame=%u", samplesPerFrame);
+    log_cb(RETRO_LOG_INFO, log_msg);
     return true;
 }
 
@@ -684,7 +750,13 @@ bool retro_load_game_special(unsigned /*game_type*/, const retro_game_info* /*in
 }
 
 void retro_run() {
+    char log_msg[256];
+    snprintf(log_msg, sizeof(log_msg), "[RUN] Entering retro_run, dosbox_exit=%d, emuThread=%p", dosbox_exit, emuThread);
+    log_cb(RETRO_LOG_INFO, log_msg);
+
     if (dosbox_exit && emuThread) {
+        snprintf(log_msg, sizeof(log_msg), "[RUN] DOSBox exited, shutting down core");
+        log_cb(RETRO_LOG_WARN, log_msg);
         co_delete(emuThread);
         emuThread = nullptr;
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, nullptr);
