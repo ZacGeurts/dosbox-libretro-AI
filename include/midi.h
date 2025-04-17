@@ -56,5 +56,6 @@ struct DB_Midi {
 };
 
 extern DB_Midi midi;
+extern struct retro_midi_interface* retro_midi_interface;
 
 #endif
