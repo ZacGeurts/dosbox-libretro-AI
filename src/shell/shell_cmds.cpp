@@ -487,7 +487,7 @@ void DOS_Shell::CMD_DIR(char *args) {
         WriteOut(MSG_Get("SHELL_ILLEGAL_PATH"));
         return;
     }
-    snprintf(args, CROSS_LEN, "\"%s\"", sargs);
+    fprintf(stderr, "\"%s\"", sargs);
     if (!strrchr(args, '.')) {
         strcat(args, "*.*"); // Changed from ".*" to "*.*" for consistency
     }
