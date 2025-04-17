@@ -23,6 +23,7 @@
 #define DOSBOX_DOSBOX_H
 
 #include "config.h"
+#include <libretro.h>
 
 extern retro_log_printf_t log_cb; // Logging callback for libretro
 
