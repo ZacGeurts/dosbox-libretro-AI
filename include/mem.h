@@ -144,12 +144,24 @@ void mem_strcpy(PhysPt dest, PhysPt src);
 }
 
 [[gnu::always_inline]] static inline void real_writeb(Bit16u seg, Bit16u off, Bit8u val) {
+    if (!MemBase) {
+        LOG_MSG("real_writeb: Memory not initialized, skipping write to %04x:%04x", seg, off);
+        return;
+    }
     mem_writeb((seg << 4) + off, val);
 }
 [[gnu::always_inline]] static inline void real_writew(Bit16u seg, Bit16u off, Bit16u val) {
+    if (!MemBase) {
+        LOG_MSG("real_writew: Memory not initialized, skipping write to %04x:%04x", seg, off);
+        return;
+    }
     mem_writew((seg << 4) + off, val);
 }
 [[gnu::always_inline]] static inline void real_writed(Bit16u seg, Bit16u off, Bit32u val) {
+    if (!MemBase) {
+        LOG_MSG("real_writed: Memory not initialized, skipping write to %04x:%04x", seg, off);
+        return;
+    }
     mem_writed((seg << 4) + off, val);
 }
 
