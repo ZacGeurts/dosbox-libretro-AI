@@ -1,7 +1,7 @@
 /* Copyright  (C) 2010-2020 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
- * The following license statement only applies to this file (retro_common.h).
+ * The following license statement only applies to this file (memmap.h).
  * ---------------------------------------------------------------------------------------
  *
  * Permission is hereby granted, free of charge,
@@ -20,17 +20,33 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _LIBRETRO_COMMON_RETRO_COMMON_H
-#define _LIBRETRO_COMMON_RETRO_COMMON_H
+#ifndef _LIBRETRO_MEMMAP_H
+#define _LIBRETRO_MEMMAP_H
 
-/*!
- * @internal This file is designed to normalize the libretro-common compiling environment.
- * It is not to be used in public API headers, as they should be designed as leanly as possible.
- * Nonetheless.. in the meantime, if you do something like use ssize_t, which is not fully portable,
- * in a public API, you may need this.
- */
+#include <stdio.h>
+#include <stdint.h>
 
-/* conditional compilation is handled inside here */
-#include <compat/msvc.h>
+#if defined(PSP) || defined(PS2) || defined(GEKKO) || defined(VITA) || defined(_XBOX) || defined(_3DS) || defined(WIIU) || defined(SWITCH) || defined(HAVE_LIBNX) || defined(__PS3__) || defined(__PSL1GHT__)
+/* No mman available */
+#elif defined(_WIN32) && !defined(_XBOX)
+#include <windows.h>
+#include <errno.h>
+#include <io.h>
+#else
+#define HAVE_MMAN
+#include <sys/mman.h>
+#endif
+
+#if !defined(HAVE_MMAN) || defined(_WIN32)
+void* mmap(void *addr, size_t len, int mmap_prot, int mmap_flags, int fildes, size_t off);
+
+int munmap(void *addr, size_t len);
+
+int mprotect(void *addr, size_t len, int prot);
+#endif
+
+int memsync(void *start, void *end);
+
+int memprotect(void *addr, size_t len);
 
 #endif

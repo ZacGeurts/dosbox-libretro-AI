@@ -1,4 +1,4 @@
-/* Copyright  (C) 2010-2016 The RetroArch team
+/* Copyright  (C) 2010-2020 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
  * The following license statement only applies to this file (getopt.h).
@@ -27,14 +27,22 @@
 #include "../../../config.h"
 #endif
 
-/* Custom implementation of the GNU getopt_long for portability.
- * Not designed to be fully compatible, but compatible with 
- * the features RetroArch uses. */
+/**
+ * @file getopt.h
+ *
+ * Portable reimplementation of a subset of libc's \c getopt_long.
+ * Not designed to be fully compatible,
+ * but it's enough for RetroArch's purposes.
+ *
+ * If \c getopt_long is available (as determined by \c HAVE_GETOPT_LONG), it will be used instead.
+ *
+ * @see https://man7.org/linux/man-pages/man3/getopt.3.html
+ */
 
 #ifdef HAVE_GETOPT_LONG
 #include <getopt.h>
 #else
-/* Avoid possible naming collisions during link since we 
+/* Avoid possible naming collisions during link since we
  * prefer to use the actual name. */
 #define getopt_long(argc, argv, optstring, longopts, longindex) __getopt_long_retro(argc, argv, optstring, longopts, longindex)
 
@@ -51,7 +59,7 @@ struct option
 };
 
 /* argv[] is declared with char * const argv[] in GNU,
- * but this makes no sense, as non-POSIX getopt_long 
+ * but this makes no sense, as non-POSIX getopt_long
  * mutates argv (non-opts are moved to the end). */
 int getopt_long(int argc, char *argv[],
       const char *optstring, const struct option *longopts, int *longindex);
@@ -72,4 +80,3 @@ RETRO_END_DECLS
 
 /* pragma once */
 #endif
-

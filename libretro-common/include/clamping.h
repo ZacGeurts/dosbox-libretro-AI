@@ -1,7 +1,7 @@
 /* Copyright  (C) 2010-2020 The RetroArch team
  *
  * ---------------------------------------------------------------------------------------
- * The following license statement only applies to this file (retro_common.h).
+ * The following license statement only applies to this file (clamping.h).
  * ---------------------------------------------------------------------------------------
  *
  * Permission is hereby granted, free of charge,
@@ -20,17 +20,43 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 
-#ifndef _LIBRETRO_COMMON_RETRO_COMMON_H
-#define _LIBRETRO_COMMON_RETRO_COMMON_H
+#ifndef _LIBRETRO_SDK_CLAMPING_H
+#define _LIBRETRO_SDK_CLAMPING_H
 
-/*!
- * @internal This file is designed to normalize the libretro-common compiling environment.
- * It is not to be used in public API headers, as they should be designed as leanly as possible.
- * Nonetheless.. in the meantime, if you do something like use ssize_t, which is not fully portable,
- * in a public API, you may need this.
+#include <stdint.h>
+#include <retro_inline.h>
+
+/**
+ * Clamps a floating-point value to the specified range.
+ *
+ * @param val The value to clamp.
+ * @param lower The minimum possible value.
+ * @param upper The maximum possible value.
+ *
+ * @returns \c val clamped to between \c lower and \c upper (inclusive).
  */
+static INLINE float clamp_float(float val, float lower, float upper)
+{
+   if (val < lower)
+      return lower;
+   if (val > upper)
+      return upper;
+   return val;
+}
 
-/* conditional compilation is handled inside here */
-#include <compat/msvc.h>
+/**
+ * Clamps an integer to fit in 8 bits.
+ *
+ * @param val The value to clamp.
+ * @return \c val clamped to between 0 and 255 (inclusive).
+ */
+static INLINE uint8_t clamp_8bit(int val)
+{
+   if (val > 255)
+      return 255;
+   if (val < 0)
+      return 0;
+   return (uint8_t)val;
+}
 
 #endif
