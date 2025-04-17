@@ -151,9 +151,14 @@ void MixerChannel::Enable(bool _yesno)
 	}
 }
 
-void MixerChannel::SetFreq(Bitu _freq)
-{
-	freq_add=(_freq<<MIXER_SHIFT)/mixer.freq;
+void MixerChannel::SetFreq(Bitu _freq) {
+    if (mixer.freq == 0) {
+        LOG_MSG("MIXER: Error: mixer.freq is zero in SetFreq, disabling channel");
+        freq_add = 0; // Set safe default
+        enabled = false; // Disable channel to prevent invalid processing
+        return;
+    }
+    freq_add = (_freq << MIXER_SHIFT) / mixer.freq;
 }
 
 void MixerChannel::Mix(Bitu _needed)
@@ -694,43 +699,69 @@ MixerObject::~MixerObject()
 	MIXER_DelChannel(MIXER_FindChannel(m_name));
 }
 
+// added MIXER_Destroy to prevent possible? memory leaks.
+static void MIXER_Destroy(Section* sec) {
+    // Remove timer handlers
+    if (mixer.nosound || mixer.freq > 49716) {
+        TIMER_DelTickHandler(MIXER_Mix_NoSound);
+    } else {
+        TIMER_DelTickHandler(MIXER_Mix);
+    }
 
-void MIXER_Init(Section* sec)
-{
-   sec->AddDestroyFunction(&MIXER_Stop);
+    // Free all mixer channels
+    MixerChannel* chan = mixer.channels;
+    while (chan) {
+        MixerChannel* next = chan->next;
+        delete chan;
+        chan = next;
+    }
+    mixer.channels = nullptr;
 
-   Section_prop * section=static_cast<Section_prop *>(sec);
-   /* Read out config section */
-   mixer.freq=section->Get_int("rate");
-   mixer.nosound=section->Get_bool("nosound");
-   mixer.blocksize=section->Get_int("blocksize");
+    // Reset mixer state
+    mixer.pos = 0;
+    mixer.done = 0;
+    mixer.needed = 0;
+    mixer.tick_remain = 0;
+    memset(mixer.work, 0, sizeof(mixer.work));
+}
 
-   /* Initialize the internal stuff */
-   mixer.channels=0;
-   mixer.pos=0;
-   mixer.done=0;
-   memset(mixer.work,0,sizeof(mixer.work));
-   mixer.mastervol[0]=1.0f;
-   mixer.mastervol[1]=1.0f;
+void MIXER_Init(Section* sec) {
+    sec->AddDestroyFunction(&MIXER_Destroy);
 
-   mixer.tick_remain=0;
-   if (mixer.nosound || mixer.freq > 49716)
-   {
-      LOG_MSG("MIXER:No Sound Mode Selected.");
-      mixer.tick_add=((mixer.freq) << MIXER_SHIFT)/1000;
-      TIMER_AddTickHandler(MIXER_Mix_NoSound);
-   }
-   else
-   {
-      mixer.tick_add=(mixer.freq << MIXER_SHIFT)/1000;
-      TIMER_AddTickHandler(MIXER_Mix);
-   }
-   mixer.min_needed=section->Get_int("prebuffer");
-   if (mixer.min_needed>100) mixer.min_needed=100;
-   mixer.min_needed=(mixer.freq*mixer.min_needed)/1000;
-   mixer.max_needed=mixer.blocksize * 2 + 2*mixer.min_needed;
-   mixer.needed=mixer.min_needed+1;
-   PROGRAMS_MakeFile("MIXER.COM",MIXER_ProgramStart);
+    Section_prop * section = static_cast<Section_prop *>(sec);
+    /* Read out config section */
+    mixer.freq = section->Get_int("rate");
+    // Ensure mixer.freq is non-zero; use default if invalid
+    if (mixer.freq <= 0) {
+        LOG_MSG("MIXER: Invalid or unset mixer.freq (%d), setting to 44100", mixer.freq);
+        mixer.freq = 44100; // Standard audio rate
+    }
+    mixer.nosound = section->Get_bool("nosound");
+    mixer.blocksize = section->Get_int("blocksize");
+
+    /* Initialize the internal stuff */
+    mixer.channels = 0;
+    mixer.pos = 0;
+    mixer.done = 0;
+    memset(mixer.work, 0, sizeof(mixer.work));
+    mixer.mastervol[0] = 1.0f;
+    mixer.mastervol[1] = 1.0f;
+
+    mixer.tick_remain = 0;
+    if (mixer.nosound || mixer.freq > 49716) {
+        LOG_MSG("MIXER: No Sound Mode Selected.");
+        mixer.tick_add = ((mixer.freq) << MIXER_SHIFT) / 1000;
+        TIMER_AddTickHandler(MIXER_Mix_NoSound);
+    } else {
+        mixer.tick_add = (mixer.freq << MIXER_SHIFT) / 1000;
+        TIMER_AddTickHandler(MIXER_Mix);
+    }
+    mixer.min_needed = section->Get_int("prebuffer");
+    if (mixer.min_needed > 100) mixer.min_needed = 100;
+    mixer.min_needed = (mixer.freq * mixer.min_needed) / 1000;
+    mixer.max_needed = mixer.blocksize * 2 + 2 * mixer.min_needed;
+    mixer.needed = mixer.min_needed + 1;
+    PROGRAMS_MakeFile("MIXER.COM", MIXER_ProgramStart);
 }
 
 // Need to put it in the av_info struct
