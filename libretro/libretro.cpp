@@ -49,6 +49,8 @@
 
 #define RETRO_DEVICE_JOYSTICK RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)
 
+retro_log_printf_t log_cb = nullptr; // Definition of log_cb
+
 #ifndef PATH_MAX_LENGTH
 #define PATH_MAX_LENGTH 4096
 #endif
