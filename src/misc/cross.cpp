@@ -27,7 +27,7 @@
 #include <psp2/io/stat.h>
 #endif
 
-#include "../../libretro/libretro.h"
+#include "libretro.h"
 #include "dosbox.h"
 #include "cross.h"
 #include "support.h"
@@ -47,26 +47,26 @@ const char slash = '/';
 
 void Cross::GetPlatformConfigDir(std::string& in) {
 #ifdef __LIBRETRO__
-	extern std::string retro_save_directory;
-	extern std::string retro_library_name;
-	char slash;
+    extern std::string retro_save_directory;
+    extern std::string retro_library_name;
+    char slash;
 #ifdef _WIN32
-	slash = '\\';
+    slash = '\\';
 #else
-	slash = '/';
+    slash = '/';
 #endif
-	in = retro_save_directory + slash + retro_library_name;
+    in = retro_save_directory + slash + retro_library_name;
 #elif WIN32
-	W32_ConfDir(in,false);
-	in += "\\DOSBox";
+    W32_ConfDir(in,false);
+    in += "\\DOSBox";
 #elif defined(MACOSX)
-	in = "~/Library/Preferences";
-	ResolveHomedir(in);
+    in = "~/Library/Preferences";
+    ResolveHomedir(in);
 #else
-	in = "~/.dosbox";
-	ResolveHomedir(in);
+    in = "~/.dosbox";
+    ResolveHomedir(in);
 #endif
-	in += CROSS_FILESPLIT;
+    in += CROSS_FILESPLIT;
 }
 
 void Cross::GetPlatformConfigName(std::string& in) {
@@ -77,13 +77,13 @@ void Cross::GetPlatformConfigName(std::string& in) {
 #else /*linux freebsd*/
 #define DEFAULT_CONFIG_FILE "dosbox-" VERSION ".conf"
 #endif
-	in = DEFAULT_CONFIG_FILE;
+    in = DEFAULT_CONFIG_FILE;
 }
 
 void Cross::CreatePlatformConfigDir(std::string& in)
 {
-	in += retro_system_directory + slash + "DOSBox";
-	in += CROSS_FILESPLIT;
+    in += retro_system_directory + slash + "DOSBox";
+    in += CROSS_FILESPLIT;
 }
 
 void Cross::ResolveHomedir(std::string & temp_line)
@@ -129,30 +129,30 @@ void Cross::CreateDir(std::string const& in)
 
 bool Cross::IsPathAbsolute(std::string const& in)
 {
-	// Absolute paths
+    // Absolute paths
 #if defined (WIN32)
-	// drive letter
-	if (in.size() > 2 && in[1] == ':' )
+    // drive letter
+    if (in.size() > 2 && in[1] == ':' )
       return true;
-	// UNC path
-	else if (in.size() > 2 && in[0]=='\\' && in[1]=='\\')
+    // UNC path
+    else if (in.size() > 2 && in[0]=='\\' && in[1]=='\\')
       return true;
 #else
-	if (in.size() > 1 && in[0] == '/' )
+    if (in.size() > 1 && in[0] == '/' )
       return true;
 #endif
-	return false;
+    return false;
 }
 
 dir_information* open_directory(const char* dirname)
 {
-	static dir_information dir;
+    static dir_information dir;
 
-	dir.dir = retro_opendir(dirname);
+    dir.dir = retro_opendir(dirname);
 
-	safe_strncpy(dir.base_path,dirname,CROSS_LEN);
+    safe_strncpy(dir.base_path,dirname,CROSS_LEN);
 
-	return dir.dir && dir.dir->directory ? &dir : NULL;
+    return dir.dir ? &dir : NULL; // Simplified check: return &dir if dir.dir is non-null
 }
 
 bool read_directory_next(dir_information* dirp, char* entry_name, char* entry_sname, bool& is_directory)
@@ -181,5 +181,5 @@ bool read_directory_first(dir_information* dirp, char* entry_name, char* entry_s
 
 void close_directory(dir_information* dirp)
 {
-	retro_closedir(dirp->dir);
+    retro_closedir(dirp->dir);
 }
