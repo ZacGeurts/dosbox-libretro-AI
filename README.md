@@ -12,6 +12,7 @@ Is it faster or not? Unnuno. Depends if you already have dynrec enabled and can 
 The niceity is it builds with C++ 17 now and probably 20 without pages of warnings and errors.<BR />
 I will be eventually getting more information on what is being achieved. Still a new project.<BR />
 For now I just fixed a couple bugs from moving to the new libretro-common and am beginning to just have the AI rewrite files.<BR />
+So I hit some bugs that I did not fix properly and am going through and updating libretro-common issues again now that I have other fixes in place. Shoulde be updated and uploaded soon(tm).<BR />
 Press space bar to run the emulator full speed. <BR />
 You can view the framerate and other setting in Config - On screen Notifications - Notification Visibility <BR />
 One of the updates changed endian so PowerPC is unlikely to work any longer with this build. <BR />
