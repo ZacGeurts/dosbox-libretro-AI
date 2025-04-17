@@ -148,9 +148,14 @@ static CacheBlockDynRec* LinkBlocks(BlockReturn ret) {
     const Bitu temp_ip = SegPhys(cs) + reg_eip;
     const Bitu link_hash = (temp_ip >> 3) & (LINK_CACHE_SIZE - 1);
 
+    fprintf(stderr, "[DYNREC] LinkBlocks: ret=%d, temp_ip=0x%lx, link_hash=0x%lx\n", 
+            static_cast<int>(ret), temp_ip, link_hash);
+
     // Check link cache
     if (link_cache[link_hash] && link_cache[link_hash]->cache.start == temp_ip) {
         block = link_cache[link_hash];
+        fprintf(stderr, "[DYNREC] LinkBlocks: Found cached block at 0x%lx, linking to it\n", 
+                temp_ip);
         cache.block.running->LinkTo(ret == BlockReturn::Link2, block);
         return block;
     }
@@ -159,10 +164,17 @@ static CacheBlockDynRec* LinkBlocks(BlockReturn ret) {
     if (temp_handler->flags & PFLAG_HASCODE) {
         block = temp_handler->FindCacheBlock(temp_ip & 4095);
         if (block) {
+            fprintf(stderr, "[DYNREC] LinkBlocks: Found block at 0x%lx in handler, linking\n", 
+                    temp_ip);
             cache.block.running->LinkTo(ret == BlockReturn::Link2, block);
             link_cache[link_hash] = block;
             __builtin_prefetch(block->cache.start);
+        } else {
+            fprintf(stderr, "[DYNREC] LinkBlocks: No block found at 0x%lx in handler\n", 
+                    temp_ip);
         }
+    } else {
+        fprintf(stderr, "[DYNREC] LinkBlocks: Handler at 0x%lx has no code\n", temp_ip);
     }
     return block;
 }
@@ -173,112 +185,175 @@ Bits CPU_Core_Dynrec_Run() {
     static CodePageHandlerDynRec* last_handler = nullptr;
     static Bitu pit_check_counter = 0;
 
+    fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Starting, cs=0x%lx, eip=0x%lx\n", 
+            SegValue(cs), reg_eip);
+
     for (;;) {
         const PhysPt ip_point = SegPhys(cs) + reg_eip;
+        fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: ip_point=0x%lx\n", ip_point);
+
 #if C_HEAVY_DEBUG
-        if (DEBUG_HeavyIsBreakpoint()) return debugCallback;
+        if (DEBUG_HeavyIsBreakpoint()) {
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Breakpoint hit, returning debugCallback\n");
+            return debugCallback;
+        }
 #endif
 
         CodePageHandlerDynRec* chandler = nullptr;
         if ((ip_point & ~(PAGESIZE - 1)) == last_ip_page && last_handler) {
             chandler = last_handler;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Using cached handler for page 0x%lx\n", 
+                    last_ip_page);
         } else {
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Looking up handler for ip_point=0x%lx\n", 
+                    ip_point);
             if (GCC_UNLIKELY(MakeCodePage(ip_point, chandler))) {
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: MakeCodePage failed, raising exception %ld\n", 
+                        cpu.exception.which);
                 CPU_Exception(cpu.exception.which, cpu.exception.error);
                 continue;
             }
             last_ip_page = ip_point & ~(PAGESIZE - 1);
             last_handler = chandler;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Updated last_ip_page=0x%lx, handler=%p\n", 
+                    last_ip_page, chandler);
         }
 
-        if (GCC_UNLIKELY(!chandler)) return CPU_Core_Normal_Run();
+        if (GCC_UNLIKELY(!chandler)) {
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: No handler, falling back to normal core\n");
+            return CPU_Core_Normal_Run();
+        }
 
         CacheBlockDynRec* block = chandler->FindCacheBlock(ip_point & 4095);
         if (!block) {
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: No block at 0x%lx, creating new\n", 
+                    ip_point);
             if (!chandler->invalidation_map || chandler->invalidation_map[ip_point & 4095] < 2) {
                 block = CreateCacheBlock(chandler, ip_point, 48); // Balanced block size
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Created block at 0x%lx\n", ip_point);
             } else {
                 const Bitu old_cycles = CPU_Cycles;
                 CPU_Cycles = 1;
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Invalidation map hit, running normal core\n");
                 const Bits nc_retcode = CPU_Core_Normal_Run();
                 if (!nc_retcode) {
                     CPU_Cycles = old_cycles - 1;
+                    fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Normal core returned 0, continuing\n");
                     continue;
                 }
                 CPU_CycleLeft += old_cycles;
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Normal core returned %ld\n", nc_retcode);
                 return nc_retcode;
             }
         }
 
 run_block:
-        cache.block.running = nullptr;
+        cache.block.running = block;
+        fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Running block at 0x%lx, start=%p\n", 
+                ip_point, block->cache.start);
         const BlockReturn ret = core_dynrec.runcode(block->cache.start);
+        fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Block returned %d\n", static_cast<int>(ret));
 
         // Periodic PIT check to ensure timing-critical devices (e.g., PCSpeaker)
         if (++pit_check_counter >= 16) {
-            if (PIC_IRQCheck & 0x1) return CBRET_NONE; // Force PIT IRQ
+            if (PIC_IRQCheck & 0x1) {
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: PIT IRQ pending, returning CBRET_NONE\n");
+                return CBRET_NONE; // Force PIT IRQ
+            }
             pit_check_counter = 0;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: PIT check, no IRQ\n");
         }
 
         switch (ret) {
         case BlockReturn::Iret:
 #if C_DEBUG
 #if C_HEAVY_DEBUG
-            if (DEBUG_HeavyIsBreakpoint()) return debugCallback;
+            if (DEBUG_HeavyIsBreakpoint()) {
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: IRET with breakpoint, returning debugCallback\n");
+                return debugCallback;
+            }
 #endif
 #endif
             if (!GETFLAG(TF)) {
-                if (GETFLAG(IF) && PIC_IRQCheck) return CBRET_NONE;
+                if (GETFLAG(IF) && PIC_IRQCheck) {
+                    fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: IRET with IRQ pending, returning CBRET_NONE\n");
+                    return CBRET_NONE;
+                }
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: IRET, continuing\n");
                 break;
             }
             cpudecoder = CPU_Core_Dynrec_Trap_Run;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: IRET with TF, switching to trap run\n");
             return CBRET_NONE;
 
         case BlockReturn::Normal:
 #if C_DEBUG
 #if C_HEAVY_DEBUG
-            if (DEBUG_HeavyIsBreakpoint()) return debugCallback;
+            if (DEBUG_HeavyIsBreakpoint()) {
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Normal with breakpoint, returning debugCallback\n");
+                return debugCallback;
+            }
 #endif
 #endif
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Normal return, continuing\n");
             break;
 
         case BlockReturn::Cycles:
 #if C_DEBUG
 #if C_HEAVY_DEBUG
-            if (DEBUG_HeavyIsBreakpoint()) return debugCallback;
+            if (DEBUG_HeavyIsBreakpoint()) {
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Cycles with breakpoint, returning debugCallback\n");
+                return debugCallback;
+            }
 #endif
 #endif
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Cycles exhausted, returning CBRET_NONE\n");
             return CBRET_NONE;
 
         case BlockReturn::CallBack:
             FillFlags();
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Callback, returning 0x%lx\n", 
+                    core_dynrec.callback);
             return core_dynrec.callback;
 
         case BlockReturn::SMCBlock:
             cpu.exception.which = 0;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: SMCBlock, clearing exception\n");
             [[fallthrough]];
         case BlockReturn::Opcode:
             CPU_CycleLeft += CPU_Cycles;
             CPU_Cycles = 1;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Opcode/SMC, running normal core\n");
             return CPU_Core_Normal_Run();
 
 #if C_DEBUG
         case BlockReturn::OpcodeFull:
             CPU_CycleLeft += CPU_Cycles;
             CPU_Cycles = 1;
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: OpcodeFull, running full core\n");
             return CPU_Core_Full_Run();
 #endif
 
         case BlockReturn::Link1:
         case BlockReturn::Link2:
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Linking block, ret=%d\n", 
+                    static_cast<int>(ret));
             block = LinkBlocks(ret);
-            if (block) goto run_block;
+            if (block) {
+                fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Linked to block at 0x%lx\n", 
+                        SegPhys(cs) + reg_eip);
+                goto run_block;
+            }
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: No block to link, continuing\n");
             break;
 
         default:
+            fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Invalid return code %d\n", 
+                    static_cast<int>(ret));
             E_Exit("Invalid return code %d", static_cast<int>(ret));
         }
     }
+    fprintf(stderr, "[DYNREC] CPU_Core_Dynrec_Run: Exiting with CBRET_NONE\n");
     return CBRET_NONE;
 }
 
