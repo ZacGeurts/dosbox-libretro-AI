@@ -6,7 +6,7 @@ This is a test. I currently recommend either DOSBOX Svn or DOSBOX Pure (or vice 
 Why not try it with those? I want something old to update. This for fun, nothing much else.<BR />
 If anything comes of this project then it will likely be incorporated by those with the talent.<BR />
 Up to 300% speed update so far? Enabling dynrec is a massive jump and was not enabled by default on core downloader for Linux. It shares similat speed if reconpiled with dynrec. The old one you need to add -std=c++11 or 14 to the build options due to older code. This one should build fine on newer systems without modifying the makefile. I opened a ticket on the original dosbox-libretro to see if fixed build options can mainline into the build.<BR />
-If you want to build the original with your system capabilities then add CXX += -std=c++14 somewhere near the top of your Makefile.libretro<BR />
+If you want to build the [ORIGINAL](https://github.com/libretro/dosbox-libretro) with your system capabilities then add CXX += -std=c++14 somewhere near the top of your Makefile.libretro<BR />
 The buildbot is not using dynrec so it is not (seeming) faster yet other than that change.<BR />
 I expect like a 5%-15% speed increase when it is all said and done. You want dynrec on Windows or Linux x32 x64 as it is the 300% speed increase (likely translates to 300% reduction in complexity hitting your processor).
 <BR />
