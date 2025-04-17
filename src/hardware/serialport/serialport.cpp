@@ -19,6 +19,8 @@
 
 #include <string.h>
 #include <ctype.h>
+#include <string> // Added for C++17 std::string
+#include <cstdio> // For fprintf
 
 #include "dosbox.h"
 
@@ -1213,80 +1215,128 @@ bool CSerial::Putchar(Bit8u data, bool wait_dsr, bool wait_cts, Bitu timeout) {
 	return true;
 }
 
-class SERIALPORTS:public Module_base {
+class SERIALPORTS : public Module_base {
 public:
-	SERIALPORTS (Section * configuration):Module_base (configuration) {
-		Bit16u biosParameter[4] = { 0, 0, 0, 0 };
-		Section_prop *section = static_cast <Section_prop*>(configuration);
+    SERIALPORTS(Section* configuration) : Module_base(configuration) {
+        // Add logging to trace constructor entry
+        fprintf(stderr, "[SERIALPORTS] Constructor called with configuration=%p\n", configuration);
+        
+        if (!configuration) {
+            fprintf(stderr, "[SERIALPORTS] ERROR: Null configuration pointer provided\n");
+            return; // Early exit to prevent crash
+        }
 
-		char s_property[] = "serialx"; 
-		for(Bitu i = 0; i < 4; i++) {
-			// get the configuration property
-			s_property[6] = '1' + i;
-			Prop_multival* p = section->Get_multival(s_property);
-			std::string type = p->GetSection()->Get_string("type");
-			CommandLine cmd(0,p->GetSection()->Get_string("parameters"));
-			
-			// detect the type
-			if (type=="dummy") {
-				serialports[i] = new CSerialDummy (i, &cmd);
-			}
+        Bit16u biosParameter[4] = {0, 0, 0, 0};
+        Section_prop* section = dynamic_cast<Section_prop*>(configuration);
+        if (!section) {
+            fprintf(stderr, "[SERIALPORTS] ERROR: Failed to cast configuration to Section_prop\n");
+            return; // Early exit if cast fails
+        }
+
+        // Use std::string for C++17 compatibility
+        std::string s_property = "serialx";
+        for (Bitu i = 0; i < 4; i++) {
+            s_property[6] = '1' + i;
+            fprintf(stderr, "[SERIALPORTS] Processing %s\n", s_property.c_str());
+
+            Prop_multival* p = section->Get_multival(s_property.c_str());
+            if (!p) {
+                fprintf(stderr, "[SERIALPORTS] ERROR: No multival property for %s\n", s_property.c_str());
+                continue; // Skip if property not found
+            }
+
+            std::string type = p->GetSection()->Get_string("type");
+            std::string parameters = p->GetSection()->Get_string("parameters");
+            CommandLine cmd(0, parameters.c_str());
+            fprintf(stderr, "[SERIALPORTS] Type=%s, Parameters=%s\n", type.c_str(), parameters.c_str());
+
+            // Detect the type
+            if (type == "dummy") {
+                serialports[i] = new CSerialDummy(i, &cmd);
+            }
 #ifdef DIRECTSERIAL_AVAILIBLE
-			else if (type=="directserial") {
-				serialports[i] = new CDirectSerial (i, &cmd);
-				if (!serialports[i]->InstallationSuccessful)  {
-					// serial port name was wrong or already in use
-					delete serialports[i];
-					serialports[i] = NULL;
-				}
-			}
+            else if (type == "directserial") {
+                serialports[i] = new CDirectSerial(i, &cmd);
+                if (!serialports[i]->InstallationSuccessful) {
+                    fprintf(stderr, "[SERIALPORTS] WARNING: CDirectSerial installation failed for port %u\n", i + 1);
+                    delete serialports[i];
+                    serialports[i] = nullptr;
+                }
+            }
 #endif
 #if C_MODEM
-			else if(type=="modem") {
-				serialports[i] = new CSerialModem (i, &cmd);
-				if (!serialports[i]->InstallationSuccessful)  {
-					delete serialports[i];
-					serialports[i] = NULL;
-				}
-			}
-			else if(type=="nullmodem") {
-				serialports[i] = new CNullModem (i, &cmd);
-				if (!serialports[i]->InstallationSuccessful)  {
-					delete serialports[i];
-					serialports[i] = NULL;
-				}
-			}
+            else if (type == "modem") {
+                serialports[i] = new CSerialModem(i, &cmd);
+                if (!serialports[i]->InstallationSuccessful) {
+                    fprintf(stderr, "[SERIALPORTS] WARNING: CSerialModem installation failed for port %u\n", i + 1);
+                    delete serialports[i];
+                    serialports[i] = nullptr;
+                }
+            }
+            else if (type == "nullmodem") {
+                serialports[i] = new CNullModem(i, &cmd);
+                if (!serialports[i]->InstallationSuccessful) {
+                    fprintf(stderr, "[SERIALPORTS] WARNING: CNullModem installation failed for port %u\n", i + 1);
+                    delete serialports[i];
+                    serialports[i] = nullptr;
+                }
+            }
 #endif
-			else if(type=="disabled") {
-				serialports[i] = NULL;
-			} else {
-				serialports[i] = NULL;
-				LOG_MSG("Invalid type for serial%ld",i+1);
-			}
-			if(serialports[i]) biosParameter[i] = serial_baseaddr[i];
-		} // for 1-4
-		BIOS_SetComPorts (biosParameter);
-	}
+            else if (type == "disabled") {
+                serialports[i] = nullptr;
+            }
+            else {
+                serialports[i] = nullptr;
+                fprintf(stderr, "[SERIALPORTS] ERROR: Invalid type '%s' for serial%lu\n", type.c_str(), i + 1);
+                LOG_MSG("Invalid type for serial%ld", i + 1);
+            }
 
-	~SERIALPORTS () {
-		for (Bitu i = 0; i < 4; i++)
-			if (serialports[i]) {
-				delete serialports[i];
-				serialports[i] = 0;
-			}
-	}
+            if (serialports[i]) {
+                biosParameter[i] = serial_baseaddr[i];
+                fprintf(stderr, "[SERIALPORTS] Serial port %lu initialized at base address 0x%X\n", i + 1, biosParameter[i]);
+            }
+        }
+
+        BIOS_SetComPorts(biosParameter);
+        fprintf(stderr, "[SERIALPORTS] BIOS_SetComPorts called with parameters: %X, %X, %X, %X\n",
+                biosParameter[0], biosParameter[1], biosParameter[2], biosParameter[3]);
+    }
+
+    ~SERIALPORTS() {
+        fprintf(stderr, "[SERIALPORTS] Destructor called\n");
+        for (Bitu i = 0; i < 4; i++) {
+            if (serialports[i]) {
+                fprintf(stderr, "[SERIALPORTS] Deleting serial port %lu\n", i + 1);
+                delete serialports[i];
+                serialports[i] = nullptr;
+            }
+        }
+    }
 };
 
-static SERIALPORTS *testSerialPortsBaseclass;
+static SERIALPORTS* testSerialPortsBaseclass = nullptr;
 
-void SERIAL_Destroy (Section * sec) {
-	delete testSerialPortsBaseclass;
-	testSerialPortsBaseclass = NULL;
+void SERIAL_Destroy(Section* sec) {
+    fprintf(stderr, "[SERIAL] SERIAL_Destroy called\n");
+    if (testSerialPortsBaseclass) {
+        delete testSerialPortsBaseclass;
+        testSerialPortsBaseclass = nullptr;
+        fprintf(stderr, "[SERIAL] testSerialPortsBaseclass deleted\n");
+    }
 }
 
-void SERIAL_Init (Section * sec) {
-	// should never happen
-	if (testSerialPortsBaseclass) delete testSerialPortsBaseclass;
-	testSerialPortsBaseclass = new SERIALPORTS (sec);
-	sec->AddDestroyFunction (&SERIAL_Destroy, true);
+void SERIAL_Init(Section* sec) {
+    fprintf(stderr, "[SERIAL] SERIAL_Init called with section=%p\n", sec);
+    if (!sec) {
+        fprintf(stderr, "[SERIAL] ERROR: Null section provided to SERIAL_Init\n");
+        return; // Early exit to prevent crash
+    }
+
+    if (testSerialPortsBaseclass) {
+        fprintf(stderr, "[SERIAL] WARNING: Deleting existing testSerialPortsBaseclass\n");
+        delete testSerialPortsBaseclass;
+    }
+    testSerialPortsBaseclass = new SERIALPORTS(sec);
+    sec->AddDestroyFunction(&SERIAL_Destroy, true);
+    fprintf(stderr, "[SERIAL] SERIAL_Init completed, testSerialPortsBaseclass=%p\n", testSerialPortsBaseclass);
 }
