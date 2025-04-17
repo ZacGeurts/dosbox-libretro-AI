@@ -100,7 +100,6 @@ retro_audio_sample_batch_t audio_batch_cb = nullptr;
 retro_input_poll_t poll_cb = nullptr;
 retro_input_state_t input_cb = nullptr;
 retro_environment_t environ_cb = nullptr;
-retro_log_printf_t log_cb = nullptr;
 //struct retro_midi_interface* retro_midi_interface = nullptr;
 
 /* DOSBox state */
