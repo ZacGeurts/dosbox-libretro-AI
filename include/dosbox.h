@@ -24,7 +24,7 @@
 
 #include "config.h"
 
-extern retro_log_printf_t log_cb;
+extern retro_log_printf_t log_cb; // Logging callback for libretro
 
 GCC_ATTRIBUTE(noreturn) void E_Exit(const char * message,...) GCC_ATTRIBUTE( __format__(__printf__, 1, 2));
 
