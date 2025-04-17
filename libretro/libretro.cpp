@@ -45,7 +45,7 @@
 #include "joystick.h"
 #include "ints/int10.h"
 #include "mem.h"
-#include <cstdio> // Add for snprintf
+#include <cstdio> // For fprintf, snprintf
 
 #define RETRO_DEVICE_JOYSTICK RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)
 
@@ -102,7 +102,6 @@ retro_audio_sample_batch_t audio_batch_cb = nullptr;
 retro_input_poll_t poll_cb = nullptr;
 retro_input_state_t input_cb = nullptr;
 retro_environment_t environ_cb = nullptr;
-//struct retro_midi_interface* retro_midi_interface = nullptr;
 
 /* DOSBox state */
 std::string loadPath;
@@ -132,14 +131,21 @@ void retro_set_input_state(retro_input_state_t cb) { input_cb = cb; }
 
 /* Helper functions */
 bool update_dosbox_variable(std::string_view section, std::string_view var, std::string_view val) noexcept {
+    fprintf(stderr, "[LIBRETRO] Updating variable: section=%s, var=%s, val=%s\n", 
+            std::string(section).c_str(), std::string(var).c_str(), std::string(val).c_str());
     if (Section* section_ptr = control->GetSection(std::string{section}); section_ptr) {
         if (Section_prop* secprop = dynamic_cast<Section_prop*>(section_ptr)) {
             section_ptr->ExecuteDestroy(false);
             std::string inputline = std::string{var} + '=' + std::string{val};
             bool result = section_ptr->HandleInputline(inputline.c_str());
             section_ptr->ExecuteInit(false);
+            fprintf(stderr, "[LIBRETRO] Update %s: %s\n", inputline.c_str(), result ? "success" : "failed");
             return result;
+        } else {
+            fprintf(stderr, "[LIBRETRO] ERROR: Section %s is not a Section_prop\n", std::string(section).c_str());
         }
+    } else {
+        fprintf(stderr, "[LIBRETRO] ERROR: Section %s not found\n", std::string(section).c_str());
     }
     return false;
 }
@@ -167,6 +173,10 @@ static const retro_variable vars[] = {
 #if defined(C_IPX)
     {"dosbox_ipx", "Enable IPX over UDP; false|true"},
 #endif
+    {"dosbox_serial1", "Serial Port 1; disabled|dummy|modem|nullmodem|directserial"},
+    {"dosbox_serial2", "Serial Port 2; disabled|dummy|modem|nullmodem|directserial"},
+    {"dosbox_serial3", "Serial Port 3; disabled|dummy|modem|nullmodem|directserial"},
+    {"dosbox_serial4", "Serial Port 4; disabled|dummy|modem|nullmodem|directserial"},
     {nullptr, nullptr},
 };
 
@@ -202,6 +212,10 @@ static const retro_variable vars_advanced[] = {
 #if defined(C_IPX)
     {"dosbox_ipx", "Enable IPX over UDP; false|true"},
 #endif
+    {"dosbox_serial1", "Serial Port 1; disabled|dummy|modem|nullmodem|directserial"},
+    {"dosbox_serial2", "Serial Port 2; disabled|dummy|modem|nullmodem|directserial"},
+    {"dosbox_serial3", "Serial Port 3; disabled|dummy|modem|nullmodem|directserial"},
+    {"dosbox_serial4", "Serial Port 4; disabled|dummy|modem|nullmodem|directserial"},
     {nullptr, nullptr},
 };
 
@@ -215,6 +229,7 @@ void check_variables() noexcept {
     var.key = "dosbox_use_options";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         use_core_options = std::string_view{var.value} == "true";
+        fprintf(stderr, "[LIBRETRO] use_core_options=%d\n", use_core_options);
     }
 
     var.key = "dosbox_adv_options";
@@ -223,16 +238,19 @@ void check_variables() noexcept {
         if (new_adv != adv_core_options) {
             adv_core_options = new_adv;
             environ_cb(RETRO_ENVIRONMENT_SET_VARIABLES, const_cast<retro_variable*>(adv_core_options ? vars_advanced : vars));
+            fprintf(stderr, "[LIBRETRO] adv_core_options=%d\n", adv_core_options);
         }
     }
 
     if (!use_core_options) {
+        fprintf(stderr, "[LIBRETRO] Core options disabled, skipping variable checks\n");
         return;
     }
 
     var.key = "dosbox_machine_type";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::string_view machine_type{var.value};
+        fprintf(stderr, "[LIBRETRO] Machine type: %s\n", std::string(machine_type).c_str());
         if (machine_type == "hercules") {
             machine = MCH_HERC;
             svgaCard = SVGA_None;
@@ -281,6 +299,7 @@ void check_variables() noexcept {
         if (new_mouse != emulated_mouse) {
             emulated_mouse = new_mouse;
             MAPPER_Init();
+            fprintf(stderr, "[LIBRETRO] emulated_mouse=%d\n", emulated_mouse);
         }
     }
 
@@ -291,36 +310,42 @@ void check_variables() noexcept {
         if (new_deadzone != deadzone) {
             deadzone = new_deadzone;
             MAPPER_Init();
+            fprintf(stderr, "[LIBRETRO] deadzone=%u\n", deadzone);
         }
     }
 
     var.key = "dosbox_cpu_cycles_mode";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         update_cycles = true;
+        fprintf(stderr, "[LIBRETRO] cpu_cycles_mode=%s\n", var.value);
     }
 
     var.key = "dosbox_cpu_cycles";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles);
         update_cycles = true;
+        fprintf(stderr, "[LIBRETRO] cpu_cycles=%u\n", cycles);
     }
 
     var.key = "dosbox_cpu_cycles_multiplier";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles_multiplier);
         update_cycles = true;
+        fprintf(stderr, "[LIBRETRO] cpu_cycles_multiplier=%u\n", cycles_multiplier);
     }
 
     var.key = "dosbox_cpu_cycles_fine";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles_fine);
         update_cycles = true;
+        fprintf(stderr, "[LIBRETRO] cpu_cycles_fine=%u\n", cycles_fine);
     }
 
     var.key = "dosbox_cpu_cycles_multiplier_fine";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles_multiplier_fine);
         update_cycles = true;
+        fprintf(stderr, "[LIBRETRO] cpu_cycles_multiplier_fine=%u\n", cycles_multiplier_fine);
     }
 
     var.key = "dosbox_cpu_type";
@@ -366,6 +391,24 @@ void check_variables() noexcept {
         update_dosbox_variable("ipx", "ipx", var.value);
     }
 #endif
+
+    // Add serial port configuration
+    for (int i = 1; i <= 4; ++i) {
+        char key[16];
+        snprintf(key, sizeof(key), "dosbox_serial%d", i);
+        var.key = key;
+        if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
+            char section[16];
+            snprintf(section, sizeof(section), "serial%d", i);
+            update_dosbox_variable("serial", section, var.value);
+            fprintf(stderr, "[LIBRETRO] serial%d=%s\n", i, var.value);
+        } else {
+            char section[16];
+            snprintf(section, sizeof(section), "serial%d", i);
+            update_dosbox_variable("serial", section, "disabled");
+            fprintf(stderr, "[LIBRETRO] serial%d=defaulted to disabled\n", i);
+        }
+    }
 
     if (adv_core_options) {
         var.key = "dosbox_sblaster_base";
@@ -440,17 +483,26 @@ void start_dosbox() {
     cpu_prop->Add_int("cycleup", Property::Changeable::Always, 100);
     cpu_prop->Add_int("cycledown", Property::Changeable::Always, 100);
 
+    // Ensure [serial] section exists with default properties
+    Section* serial_section = control->AddSection_prop("serial", nullptr);
+    Section_prop* serial_prop = static_cast<Section_prop*>(serial_section);
+    serial_prop->Add_string("serial1", Property::Changeable::Always, "disabled");
+    serial_prop->Add_string("serial2", Property::Changeable::Always, "disabled");
+    serial_prop->Add_string("serial3", Property::Changeable::Always, "disabled");
+    serial_prop->Add_string("serial4", Property::Changeable::Always, "disabled");
+
     if (!configPath.empty()) {
         fprintf(stderr, "[DOSBOX] Parsing config file: %s\n", configPath.c_str());
         control->ParseConfigFile(configPath.c_str());
     }
 
+    fprintf(stderr, "[DOSBOX] Checking core variables again\n");
+    check_variables();
+
     if (!is_restarting) {
         fprintf(stderr, "[DOSBOX] Initializing Config\n");
         control->Init();
     }
-    fprintf(stderr, "[DOSBOX] Re-checking core variables\n");
-    check_variables();
 
     fprintf(stderr, "[DOSBOX] Switching to main thread\n");
     co_switch(mainThread);
@@ -605,6 +657,8 @@ void retro_set_controller_port_device(unsigned port, unsigned device) {
         break;
     }
     MAPPER_Init();
+    fprintf(stderr, "[LIBRETRO] Controller port %u set to device=%u, connected=%d, gamepad=%d\n", 
+            port, device, connected[port], gamepad[port]);
 }
 
 void retro_get_system_info(retro_system_info* info) {
@@ -641,10 +695,10 @@ void retro_init() {
 
     static struct retro_midi_interface midi_interface;
     if (environ_cb(RETRO_ENVIRONMENT_GET_MIDI_INTERFACE, &midi_interface)) {
-        retro_midi_interface = &midi_interface;
+        //retro_midi_interface = &midi_interface;
         fprintf(stderr, "[INIT] MIDI interface initialized\n");
     } else {
-        retro_midi_interface = nullptr;
+        //retro_midi_interface = nullptr;
         fprintf(stderr, "[INIT] MIDI interface unavailable\n");
     }
 
@@ -704,6 +758,8 @@ bool retro_load_game(const retro_game_info* game) {
         }
     } else {
         fprintf(stderr, "[LOAD] No game provided, using default config\n");
+        configPath = normalize_path(retro_system_directory + slash + "DOSbox" + slash + "dosbox-libretro.conf");
+        fprintf(stderr, "[LOAD] Loading default config: %s\n", configPath.c_str());
     }
 
     fprintf(stderr, "[LOAD] Switching to emulator thread\n");
@@ -757,10 +813,6 @@ void retro_run() {
         audio_batch_cb(reinterpret_cast<int16_t*>(audioData.data()), samplesPerFrame);
     } else if (log_cb) {
         log_cb(RETRO_LOG_WARN, "Run called without emulator thread\n");
-    }
-
-    if (retro_midi_interface && retro_midi_interface->output_enabled()) {
-        retro_midi_interface->flush();
     }
 }
 
