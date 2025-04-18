@@ -18,6 +18,7 @@
 
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "dosbox.h"
@@ -549,77 +550,94 @@ void CALLBACK_HandlerObject::Set_RealVec(Bit8u vec){
 	} else E_Exit ("double usage of vector handler");
 }
 
-void CALLBACK_Init(Section* /*sec*/) {
-	Bitu i;
-	for (i=0;i<CB_MAX;i++) {
-		CallBack_Handlers[i]=&illegal_handler;
-	}
+void CALLBACK_Init(Section* sec) {
+    printf("[CALLBACK_INIT] Entering CALLBACK_Init, sec=%p\n", sec);
+    if (sec == nullptr) {
+        printf("[CALLBACK_INIT] WARNING: Section pointer is null\n");
+    }
 
-	/* Setup the Stop Handler */
-	call_stop=CALLBACK_Allocate();
-	CallBack_Handlers[call_stop]=stop_handler;
-	CALLBACK_SetDescription(call_stop,"stop");
-	phys_writeb(CALLBACK_PhysPointer(call_stop)+0,0xFE);
-	phys_writeb(CALLBACK_PhysPointer(call_stop)+1,0x38);
-	phys_writew(CALLBACK_PhysPointer(call_stop)+2,(Bit16u)call_stop);
+    Bitu i;
+    for (i = 0; i < CB_MAX; i++) {
+        CallBack_Handlers[i] = &illegal_handler;
+    }
 
-	/* Setup the idle handler */
-	call_idle=CALLBACK_Allocate();
-	CallBack_Handlers[call_idle]=stop_handler;
-	CALLBACK_SetDescription(call_idle,"idle");
-	for (i=0;i<=11;i++) phys_writeb(CALLBACK_PhysPointer(call_idle)+i,0x90);
-	phys_writeb(CALLBACK_PhysPointer(call_idle)+12,0xFE);
-	phys_writeb(CALLBACK_PhysPointer(call_idle)+13,0x38);
-	phys_writew(CALLBACK_PhysPointer(call_idle)+14,(Bit16u)call_idle);
+    /* Setup the Stop Handler */
+    call_stop = CALLBACK_Allocate();
+    CallBack_Handlers[call_stop] = stop_handler;
+    CALLBACK_SetDescription(call_stop, "stop");
+    PhysPt stop_ptr = CALLBACK_PhysPointer(call_stop);
+    printf("[CALLBACK_INIT] Stop handler: call_stop=%lu, phys_ptr=0x%lx\n", (unsigned long)call_stop, (unsigned long)stop_ptr);
+    printf("[CALLBACK_INIT] Writing 0xFE to stop_ptr+0 (0x%lx)\n", (unsigned long)(stop_ptr + 0));
+    phys_writeb(stop_ptr + 0, 0xFE);
+    printf("[CALLBACK_INIT] Writing 0x38 to stop_ptr+1 (0x%lx)\n", (unsigned long)(stop_ptr + 1));
+    phys_writeb(stop_ptr + 1, 0x38);
+    printf("[CALLBACK_INIT] Writing %u to stop_ptr+2 (0x%lx)\n", (unsigned)(Bit16u)call_stop, (unsigned long)(stop_ptr + 2));
+    phys_writew(stop_ptr + 2, (Bit16u)call_stop);
 
-	/* Default handlers for unhandled interrupts that have to be non-null */
-	call_default=CALLBACK_Allocate();
-	CALLBACK_Setup(call_default,&default_handler,CB_IRET,"default");
-	call_default2=CALLBACK_Allocate();
-	CALLBACK_Setup(call_default2,&default_handler,CB_IRET,"default");
+    /* Setup the idle handler */
+    call_idle = CALLBACK_Allocate();
+    CallBack_Handlers[call_idle] = stop_handler;
+    CALLBACK_SetDescription(call_idle, "idle");
+    PhysPt idle_ptr = CALLBACK_PhysPointer(call_idle);
+    printf("[CALLBACK_INIT] Idle handler: call_idle=%lu, phys_ptr=0x%lx\n", (unsigned long)call_idle, (unsigned long)idle_ptr);
+    for (i = 0; i <= 11; i++) phys_writeb(idle_ptr + i, 0x90);
+    phys_writeb(idle_ptr + 12, 0xFE);
+    phys_writeb(idle_ptr + 13, 0x38);
+    phys_writew(idle_ptr + 14, (Bit16u)call_idle);
 
-	/* Only setup default handler for first part of interrupt table */
-	for (Bit16u ct=0;ct<0x60;ct++) {
-		real_writed(0,ct*4,CALLBACK_RealPointer(call_default));
-	}
-	for (Bit16u ct=0x68;ct<0x70;ct++) {
-		real_writed(0,ct*4,CALLBACK_RealPointer(call_default));
-	}
-	/* Setup block of 0xCD 0xxx instructions */
-	PhysPt rint_base=CALLBACK_GetBase()+CB_MAX*CB_SIZE;
-	for (i=0;i<=0xff;i++) {
-		phys_writeb(rint_base,0xCD);
-		phys_writeb(rint_base+1,(Bit8u)i);
-		phys_writeb(rint_base+2,0xFE);
-		phys_writeb(rint_base+3,0x38);
-		phys_writew(rint_base+4,(Bit16u)call_stop);
-		rint_base+=6;
+    /* Default handlers for unhandled interrupts that have to be non-null */
+    call_default = CALLBACK_Allocate();
+    PhysPt default_ptr = CALLBACK_PhysPointer(call_default);
+    printf("[CALLBACK_INIT] Default handler: call_default=%lu, phys_ptr=0x%lx\n", (unsigned long)call_default, (unsigned long)default_ptr);
+    CALLBACK_Setup(call_default, &default_handler, CB_IRET, "default");
+    call_default2 = CALLBACK_Allocate();
+    PhysPt default2_ptr = CALLBACK_PhysPointer(call_default2);
+    printf("[CALLBACK_INIT] Default2 handler: call_default2=%lu, phys_ptr=0x%lx\n", (unsigned long)call_default2, (unsigned long)default2_ptr);
+    CALLBACK_Setup(call_default2, &default_handler, CB_IRET, "default");
 
-	}
-	// setup a few interrupt handlers that point to bios IRETs by default
-	real_writed(0,0x0e*4,CALLBACK_RealPointer(call_default2));	//design your own railroad
-	real_writed(0,0x66*4,CALLBACK_RealPointer(call_default));	//war2d
-	real_writed(0,0x67*4,CALLBACK_RealPointer(call_default));
-	real_writed(0,0x68*4,CALLBACK_RealPointer(call_default));
-	real_writed(0,0x5c*4,CALLBACK_RealPointer(call_default));	//Network stuff
-	//real_writed(0,0xf*4,0); some games don't like it
+    /* Only setup default handler for first part of interrupt table */
+    for (Bit16u ct = 0; ct < 0x60; ct++) {
+        real_writed(0, ct * 4, CALLBACK_RealPointer(call_default));
+    }
+    for (Bit16u ct = 0x68; ct < 0x70; ct++) {
+        real_writed(0, ct * 4, CALLBACK_RealPointer(call_default));
+    }
+    /* Setup block of 0xCD 0xxx instructions */
+    PhysPt rint_base = CALLBACK_GetBase() + CB_MAX * CB_SIZE;
+    printf("[CALLBACK_INIT] Interrupt block: rint_base=0x%lx\n", (unsigned long)rint_base);
+    for (i = 0; i <= 0xff; i++) {
+        phys_writeb(rint_base, 0xCD);
+        phys_writeb(rint_base + 1, (Bit8u)i);
+        phys_writeb(rint_base + 2, 0xFE);
+        phys_writeb(rint_base + 3, 0x38);
+        phys_writew(rint_base + 4, (Bit16u)call_stop);
+        rint_base += 6;
+    }
+    // Setup a few interrupt handlers that point to bios IRETs by default
+    real_writed(0, 0x0e * 4, CALLBACK_RealPointer(call_default2)); // design your own railroad
+    real_writed(0, 0x66 * 4, CALLBACK_RealPointer(call_default));  // war2d
+    real_writed(0, 0x67 * 4, CALLBACK_RealPointer(call_default));
+    real_writed(0, 0x68 * 4, CALLBACK_RealPointer(call_default));
+    real_writed(0, 0x5c * 4, CALLBACK_RealPointer(call_default)); // Network stuff
 
-	call_priv_io=CALLBACK_Allocate();
+    call_priv_io = CALLBACK_Allocate();
+    PhysPt priv_io_ptr = CALLBACK_PhysPointer(call_priv_io);
+    printf("[CALLBACK_INIT] Priv IO handler: call_priv_io=%lu, phys_ptr=0x%lx\n", (unsigned long)call_priv_io, (unsigned long)priv_io_ptr);
+    // Virtualizable in-out opcodes
+    phys_writeb(priv_io_ptr + 0x00, 0xec); // in al, dx
+    phys_writeb(priv_io_ptr + 0x01, 0xcb); // retf
+    phys_writeb(priv_io_ptr + 0x02, 0xed); // in ax, dx
+    phys_writeb(priv_io_ptr + 0x03, 0xcb); // retf
+    phys_writeb(priv_io_ptr + 0x04, 0x66); // in eax, dx
+    phys_writeb(priv_io_ptr + 0x05, 0xed);
+    phys_writeb(priv_io_ptr + 0x06, 0xcb); // retf
+    phys_writeb(priv_io_ptr + 0x08, 0xee); // out dx, al
+    phys_writeb(priv_io_ptr + 0x09, 0xcb); // retf
+    phys_writeb(priv_io_ptr + 0x0a, 0xef); // out dx, ax
+    phys_writeb(priv_io_ptr + 0x0b, 0xcb); // retf
+    phys_writeb(priv_io_ptr + 0x0c, 0x66); // out dx, eax
+    phys_writeb(priv_io_ptr + 0x0d, 0xef);
+    phys_writeb(priv_io_ptr + 0x0e, 0xcb); // retf
 
-	// virtualizable in-out opcodes
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x00,(Bit8u)0xec);	// in al, dx
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x01,(Bit8u)0xcb);	// retf
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x02,(Bit8u)0xed);	// in ax, dx
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x03,(Bit8u)0xcb);	// retf
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x04,(Bit8u)0x66);	// in eax, dx
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x05,(Bit8u)0xed);
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x06,(Bit8u)0xcb);	// retf
-
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x08,(Bit8u)0xee);	// out dx, al
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x09,(Bit8u)0xcb);	// retf
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x0a,(Bit8u)0xef);	// out dx, ax
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x0b,(Bit8u)0xcb);	// retf
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x0c,(Bit8u)0x66);	// out dx, eax
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x0d,(Bit8u)0xef);
-	phys_writeb(CALLBACK_PhysPointer(call_priv_io)+0x0e,(Bit8u)0xcb);	// retf
+    printf("[CALLBACK_INIT] Exiting CALLBACK_Init\n");
 }

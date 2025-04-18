@@ -119,27 +119,27 @@ void CPU_Core_Dynrec_Cache_Close(void);
 #endif
 
 void Descriptor::Load(PhysPt address) {
-    CPU_LOG("Descriptor::Load: Loading from address 0x%zx", static_cast<uintptr_t>(address));
+    printf("[CPU] Descriptor::Load: Loading from address 0x%zx", static_cast<uintptr_t>(address));
     cpu.mpl = 0;
     Bit32u* data = (Bit32u*)&saved;
     *data = mem_readd(address);
     *(data + 1) = mem_readd(address + 4);
     cpu.mpl = 3;
-    CPU_LOG("Descriptor::Load: Loaded descriptor, base=0x%zx, limit=0x%zx", static_cast<uintptr_t>(GetBase()), static_cast<uintptr_t>(GetLimit()));
+    printf("[CPU] Descriptor::Load: Loaded descriptor, base=0x%zx, limit=0x%zx", static_cast<uintptr_t>(GetBase()), static_cast<uintptr_t>(GetLimit()));
 }
 
 void Descriptor::Save(PhysPt address) {
-    CPU_LOG("Descriptor::Save: Saving to address 0x%zx", static_cast<uintptr_t>(address));
+    printf("[CPU] Descriptor::Save: Saving to address 0x%zx", static_cast<uintptr_t>(address));
     cpu.mpl = 0;
     Bit32u* data = (Bit32u*)&saved;
     mem_writed(address, *data);
     mem_writed(address + 4, *(data + 1));
     cpu.mpl = 3;
-    CPU_LOG("Descriptor::Save: Saved descriptor, base=0x%zx, limit=0x%zx", static_cast<uintptr_t>(GetBase()), static_cast<uintptr_t>(GetLimit()));
+    printf("[CPU] Descriptor::Save: Saved descriptor, base=0x%zx, limit=0x%zx", static_cast<uintptr_t>(GetBase()), static_cast<uintptr_t>(GetLimit()));
 }
 
 bool CPU_PopSeg(SegNames seg, bool use32) {
-    CPU_LOG("CPU_PopSeg: seg=%d, use32=%d", static_cast<int>(seg), use32);
+    printf("[CPU] CPU_PopSeg: seg=%d, use32=%d", static_cast<int>(seg), use32);
     
     Bitu value;
     if (use32) {
@@ -152,32 +152,32 @@ bool CPU_PopSeg(SegNames seg, bool use32) {
         Segs.val[seg] = value;
         Segs.phys[seg] = value << 4;
         if (seg == cs) cpu.code.big = false;
-        CPU_LOG("CPU_PopSeg: Real/VM mode, set seg=%d to 0x%lx, phys=0x%zx", 
+        printf("[CPU] CPU_PopSeg: Real/VM mode, set seg=%d to 0x%lx, phys=0x%zx", 
                 static_cast<int>(seg), value, static_cast<uintptr_t>(Segs.phys[seg]));
         return false;
     }
     
     if ((value & 0xfffc) == 0) {
         if (seg == ss) {
-            CPU_LOG("CPU_PopSeg: Null SS selector, raising #GP(0)");
+            printf("[CPU] CPU_PopSeg: Null SS selector, raising #GP(0)");
             return CPU_PrepareException(EXCEPTION_GP, 0);
         }
         Segs.val[seg] = 0;
         Segs.phys[seg] = 0;
-        CPU_LOG("CPU_PopSeg: Null selector for seg=%d", static_cast<int>(seg));
+        printf("[CPU] CPU_PopSeg: Null selector for seg=%d", static_cast<int>(seg));
         return false;
     }
     
     Descriptor desc;
     if (!cpu.gdt.GetDescriptor(value, desc)) {
-        CPU_LOG("CPU_PopSeg: Selector 0x%lx beyond limits, raising #GP(0x%lx)", 
+        printf("[CPU] CPU_PopSeg: Selector 0x%lx beyond limits, raising #GP(0x%lx)", 
                 value, value & 0xfffc);
         return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
     }
     
     if (seg == ss) {
         if (((value & 3) != cpu.cpl) || (desc.DPL() != cpu.cpl)) {
-            CPU_LOG("CPU_PopSeg: SS RPL or DPL != CPL, raising #GP(0x%lx)", value & 0xfffc);
+            printf("[CPU] CPU_PopSeg: SS RPL or DPL != CPL, raising #GP(0x%lx)", value & 0xfffc);
             return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
         }
         switch (desc.Type()) {
@@ -185,12 +185,12 @@ bool CPU_PopSeg(SegNames seg, bool use32) {
             case DESC_DATA_ED_RW_NA: case DESC_DATA_ED_RW_A:
                 break;
             default:
-                CPU_LOG("CPU_PopSeg: SS not writable data segment, raising #GP(0x%lx)", 
+                printf("[CPU] CPU_PopSeg: SS not writable data segment, raising #GP(0x%lx)", 
                         value & 0xfffc);
                 return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
         }
         if (!desc.saved.seg.p) {
-            CPU_LOG("CPU_PopSeg: SS not present, raising #SS(0x%lx)", value & 0xfffc);
+            printf("[CPU] CPU_PopSeg: SS not present, raising #SS(0x%lx)", value & 0xfffc);
             return CPU_PrepareException(EXCEPTION_SS, value & 0xfffc);
         }
         Segs.val[seg] = value;
@@ -204,7 +204,7 @@ bool CPU_PopSeg(SegNames seg, bool use32) {
             cpu.stack.mask = 0xffff;
             cpu.stack.notmask = 0xffff0000;
         }
-        CPU_LOG("CPU_PopSeg: Set SS=0x%lx, base=0x%zx, big=%d", 
+        printf("[CPU] CPU_PopSeg: Set SS=0x%lx, base=0x%zx, big=%d", 
                 value, static_cast<uintptr_t>(Segs.phys[seg]), cpu.stack.big);
         return false;
     }
@@ -213,7 +213,7 @@ bool CPU_PopSeg(SegNames seg, bool use32) {
         case DESC_CODE_N_NC_A: case DESC_CODE_N_NC_NA:
         case DESC_CODE_R_NC_A: case DESC_CODE_R_NC_NA:
             if (((value & 3) != cpu.cpl) || (desc.DPL() != cpu.cpl)) {
-                CPU_LOG("CPU_PopSeg: Code NC RPL or DPL != CPL, raising #GP(0x%lx)", 
+                printf("[CPU] CPU_PopSeg: Code NC RPL or DPL != CPL, raising #GP(0x%lx)", 
                         value & 0xfffc);
                 return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
             }
@@ -221,7 +221,7 @@ bool CPU_PopSeg(SegNames seg, bool use32) {
         case DESC_CODE_N_C_A: case DESC_CODE_N_C_NA:
         case DESC_CODE_R_C_A: case DESC_CODE_R_C_NA:
             if (desc.DPL() > cpu.cpl) {
-                CPU_LOG("CPU_PopSeg: Code C DPL > CPL, raising #GP(0x%lx)", value & 0xfffc);
+                printf("[CPU] CPU_PopSeg: Code C DPL > CPL, raising #GP(0x%lx)", value & 0xfffc);
                 return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
             }
             break;
@@ -230,25 +230,25 @@ bool CPU_PopSeg(SegNames seg, bool use32) {
         case DESC_DATA_ED_RO_NA: case DESC_DATA_ED_RO_A:
         case DESC_DATA_ED_RW_NA: case DESC_DATA_ED_RW_A:
             if (((value & 3) < cpu.cpl) || (desc.DPL() < cpu.cpl)) {
-                CPU_LOG("CPU_PopSeg: Data RPL or DPL < CPL, raising #GP(0x%lx)", 
+                printf("[CPU] CPU_PopSeg: Data RPL or DPL < CPL, raising #GP(0x%lx)", 
                         value & 0xfffc);
                 return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
             }
             break;
         default:
-            CPU_LOG("CPU_PopSeg: Invalid descriptor type %ld, raising #GP(0x%lx)", 
+            printf("[CPU] CPU_PopSeg: Invalid descriptor type %ld, raising #GP(0x%lx)", 
                     desc.Type(), value & 0xfffc);
             return CPU_PrepareException(EXCEPTION_GP, value & 0xfffc);
     }
     
     if (!desc.saved.seg.p) {
-        CPU_LOG("CPU_PopSeg: Segment not present, raising #NP(0x%lx)", value & 0xfffc);
+        printf("[CPU] CPU_PopSeg: Segment not present, raising #NP(0x%lx)", value & 0xfffc);
         return CPU_PrepareException(EXCEPTION_NP, value & 0xfffc);
     }
     
     Segs.val[seg] = value;
     Segs.phys[seg] = desc.GetBase();
-    CPU_LOG("CPU_PopSeg: Set seg=%d to 0x%lx, base=0x%zx", 
+    printf("[CPU] CPU_PopSeg: Set seg=%d to 0x%lx, base=0x%zx", 
             static_cast<int>(seg), value, static_cast<uintptr_t>(Segs.phys[seg]));
     return false;
 }
@@ -401,18 +401,18 @@ public:
     TaskStateSegment() : valid(false) {}
     bool IsValid(void) { return valid; }
     Bitu Get_back(void) {
-        CPU_LOG("TaskStateSegment::Get_back: Reading backlink from base=0x%zx", static_cast<uintptr_t>(base));
+        printf("[CPU] TaskStateSegment::Get_back: Reading backlink from base=0x%zx", static_cast<uintptr_t>(base));
         cpu.mpl = 0;
         Bit16u backlink = mem_readw(base);
         cpu.mpl = 3;
         return backlink;
     }
     void SaveSelector(void) {
-        CPU_LOG("TaskStateSegment::SaveSelector: Saving selector=0x%zx", static_cast<uintptr_t>(selector));
+        printf("[CPU] TaskStateSegment::SaveSelector: Saving selector=0x%zx", static_cast<uintptr_t>(selector));
         cpu.gdt.SetDescriptor(selector, desc);
     }
     void Get_SSx_ESPx(Bitu level, Bitu& _ss, Bitu& _esp) {
-        CPU_LOG("TaskStateSegment::Get_SSx_ESPx: Reading SS:ESP for level=%lu from base=0x%zx", level, static_cast<uintptr_t>(base));
+        printf("[CPU] TaskStateSegment::Get_SSx_ESPx: Reading SS:ESP for level=%lu from base=0x%zx", level, static_cast<uintptr_t>(base));
         cpu.mpl = 0;
         if (is386) {
             PhysPt where = base + offsetof(TSS_32, esp0) + level * 8;
@@ -424,10 +424,10 @@ public:
             _ss = mem_readw(where + 2);
         }
         cpu.mpl = 3;
-        CPU_LOG("TaskStateSegment::Get_SSx_ESPx: Got SS=0x%lx, ESP=0x%lx", _ss, _esp);
+        printf("[CPU] TaskStateSegment::Get_SSx_ESPx: Got SS=0x%lx, ESP=0x%lx", _ss, _esp);
     }
     bool SetSelector(Bitu new_sel) {
-        CPU_LOG("TaskStateSegment::SetSelector: Setting selector=0x%zx", static_cast<uintptr_t>(new_sel));
+        printf("[CPU] TaskStateSegment::SetSelector: Setting selector=0x%zx", static_cast<uintptr_t>(new_sel));
         valid = false;
         if ((new_sel & 0xfffc) == 0) {
             selector = 0;
@@ -452,7 +452,7 @@ public:
         base = desc.GetBase();
         limit = desc.GetLimit();
         is386 = desc.Is386();
-        CPU_LOG("TaskStateSegment::SetSelector: Set selector=0x%zx, base=0x%zx, limit=0x%zx, is386=%ld", static_cast<uintptr_t>(selector), static_cast<uintptr_t>(base), static_cast<uintptr_t>(limit), is386);
+        printf("[CPU] TaskStateSegment::SetSelector: Set selector=0x%zx, base=0x%zx, limit=0x%zx, is386=%ld", static_cast<uintptr_t>(selector), static_cast<uintptr_t>(base), static_cast<uintptr_t>(limit), is386);
         return true;
     }
     TSS_Descriptor desc;
@@ -470,7 +470,7 @@ enum TSwitchType {
 };
 
 bool CPU_SwitchTask(Bitu new_tss_selector, TSwitchType tstype, Bitu old_eip) {
-    CPU_LOG("CPU_SwitchTask: Switching to selector=0x%zx, type=%d, old_eip=0x%lx", static_cast<uintptr_t>(new_tss_selector), tstype, old_eip);
+    printf("[CPU] CPU_SwitchTask: Switching to selector=0x%zx, type=%d, old_eip=0x%lx", static_cast<uintptr_t>(new_tss_selector), tstype, old_eip);
     FillFlags();
     TaskStateSegment new_tss;
     if (!new_tss.SetSelector(new_tss_selector)) 
@@ -505,7 +505,7 @@ bool CPU_SwitchTask(Bitu new_tss_selector, TSwitchType tstype, Bitu old_eip) {
         new_fs = mem_readw(new_tss.base + offsetof(TSS_32, fs));
         new_gs = mem_readw(new_tss.base + offsetof(TSS_32, gs));
         new_ldt = mem_readw(new_tss.base + offsetof(TSS_32, ldt));
-        CPU_LOG("CPU_SwitchTask: Loaded 386 TSS, eip=0x%lx, cs=0x%lx, ss=0x%lx, esp=0x%lx", new_eip, new_cs, new_ss, new_esp);
+        printf("[CPU] CPU_SwitchTask: Loaded 386 TSS, eip=0x%lx, cs=0x%lx, ss=0x%lx, esp=0x%lx", new_eip, new_cs, new_ss, new_esp);
     } else {
         E_Exit("286 task switch");
         new_cr3 = new_eip = new_eflags = new_eax = new_ecx = new_edx = new_ebx = 0;
@@ -609,14 +609,14 @@ doconforming:
     CPU_SetSegGeneral(fs, new_fs);
     CPU_SetSegGeneral(gs, new_gs);
     if (!cpu_tss.SetSelector(new_tss_selector)) {
-        CPU_LOG("CPU_SwitchTask: Set TSS selector %lX failed", new_tss_selector);
+        printf("[CPU] CPU_SwitchTask: Set TSS selector %lX failed", new_tss_selector);
     }
-    CPU_LOG("CPU_SwitchTask: Completed, CPL=%ld, CS=0x%x, IP=0x%x, SS=0x%x, SP=0x%x", cpu.cpl, SegValue(cs), reg_eip, SegValue(ss), reg_esp);
+    printf("[CPU] CPU_SwitchTask: Completed, CPL=%ld, CS=0x%x, IP=0x%x, SS=0x%x, SP=0x%x", cpu.cpl, SegValue(cs), reg_eip, SegValue(ss), reg_esp);
     return true;
 }
 
 bool CPU_IO_Exception(Bitu port, Bitu size) {
-    CPU_LOG("CPU_IO_Exception: Checking port=0x%lx, size=%lu", port, size);
+    printf("[CPU] CPU_IO_Exception: Checking port=0x%lx, size=%lu", port, size);
     if (cpu.pmode && ((GETFLAG_IOPL < cpu.cpl) || GETFLAG(VM))) {
         cpu.mpl = 0;
         if (!cpu_tss.is386) goto doexception;
@@ -629,30 +629,30 @@ bool CPU_IO_Exception(Bitu port, Bitu size) {
         if (map & mask) goto doexception;
         cpu.mpl = 3;
     }
-    CPU_LOG("CPU_IO_Exception: Access allowed");
+    printf("[CPU] CPU_IO_Exception: Access allowed");
     return false;
 doexception:
     cpu.mpl = 3;
-    CPU_LOG("CPU_IO_Exception: Exception triggered for port=0x%lx", port);
+    printf("[CPU] CPU_IO_Exception: Exception triggered for port=0x%lx", port);
     return CPU_PrepareException(EXCEPTION_GP, 0);
 }
 
 void CPU_Exception(Bitu which, Bitu error) {
-    CPU_LOG("CPU_Exception: which=%ld, error=0x%lx", which, error);
+    printf("[CPU] CPU_Exception: which=%ld, error=0x%lx", which, error);
     cpu.exception.error = error;
     CPU_Interrupt(which, CPU_INT_EXCEPTION | ((which >= 8) ? CPU_INT_HAS_ERROR : 0), reg_eip);
 }
 
 Bit8u lastint;
 void CPU_Interrupt(Bitu num, Bitu type, Bitu oldeip) {
-    CPU_LOG("CPU_Interrupt: num=0x%lx, type=0x%lx, oldeip=0x%lx", num, type, oldeip);
+    printf("[CPU] CPU_Interrupt: num=0x%lx, type=0x%lx, oldeip=0x%lx", num, type, oldeip);
     lastint = num;
     FillFlags();
 #if C_DEBUG
     switch (num) {
         case 0xcd:
 #if C_HEAVY_DEBUG
-            CPU_LOG("CPU_Interrupt: Call to interrupt 0xCD, this is BAD");
+            printf("[CPU] CPU_Interrupt: Call to interrupt 0xCD, this is BAD");
             DEBUG_HeavyWriteLogInstruction();
             E_Exit("Call to interrupt 0xCD this is BAD");
 #endif
@@ -676,7 +676,7 @@ void CPU_Interrupt(Bitu num, Bitu type, Bitu oldeip) {
         Segs.val[cs] = mem_readw(base + (num << 2) + 2);
         Segs.phys[cs] = Segs.val[cs] << 4;
         cpu.code.big = false;
-        CPU_LOG("CPU_Interrupt: Real mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+        printf("[CPU] CPU_Interrupt: Real mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
         return;
     } else {
         if ((reg_flags & FLAG_VM) && (type & CPU_INT_SOFTWARE) && !(type & CPU_INT_NOIOPLCHECK)) {
@@ -814,7 +814,7 @@ do_interrupt:
                 SETFLAGBIT(TF, false);
                 SETFLAGBIT(NT, false);
                 SETFLAGBIT(VM, false);
-                CPU_LOG("CPU_Interrupt: Gate to %lX:%lX big %ld %s", gate_sel, gate_off, cs_desc.Big(), gate.Type() & 0x8 ? "386" : "286");
+                printf("[CPU] CPU_Interrupt: Gate to %lX:%lX big %ld %s", gate_sel, gate_off, cs_desc.Big(), gate.Type() & 0x8 ? "386" : "286");
                 return;
             }
             case DESC_TASK_GATE:
@@ -834,7 +834,7 @@ do_interrupt:
 }
 
 void CPU_IRET(bool use32, Bitu oldeip) {
-    CPU_LOG("CPU_IRET: use32=%d, oldeip=0x%lx", use32, oldeip);
+    printf("[CPU] CPU_IRET: use32=%d, oldeip=0x%lx", use32, oldeip);
     if (!cpu.pmode) {
         if (use32) {
             reg_eip = CPU_Pop32();
@@ -847,7 +847,7 @@ void CPU_IRET(bool use32, Bitu oldeip) {
         }
         cpu.code.big = false;
         DestroyConditionFlags();
-        CPU_LOG("CPU_IRET: Real mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+        printf("[CPU] CPU_IRET: Real mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
         return;
     } else {
         if (reg_flags & FLAG_VM) {
@@ -878,7 +878,7 @@ void CPU_IRET(bool use32, Bitu oldeip) {
                 }
                 cpu.code.big = false;
                 DestroyConditionFlags();
-                CPU_LOG("CPU_IRET: V86 mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+                printf("[CPU] CPU_IRET: V86 mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
                 return;
             }
         }
@@ -888,7 +888,7 @@ void CPU_IRET(bool use32, Bitu oldeip) {
                 "TASK Iret without valid TSS",
                 EXCEPTION_TS, cpu_tss.selector & 0xfffc)
             if (!cpu_tss.desc.IsBusy()) {
-                CPU_LOG("CPU_IRET: TSS not busy");
+                printf("[CPU] CPU_IRET: TSS not busy");
             }
             Bitu back_link = cpu_tss.Get_back();
             CPU_SwitchTask(back_link, TSwitch_IRET, oldeip);
@@ -924,7 +924,7 @@ void CPU_IRET(bool use32, Bitu oldeip) {
                 reg_esp = n_esp;
                 cpu.code.big = false;
                 SegSet16(cs, n_cs_sel);
-                CPU_LOG("CPU_IRET: Back to V86: CS=0x%x, IP=0x%x, SS=0x%x, SP=0x%x, FLAGS=0x%lx", SegValue(cs), reg_eip, SegValue(ss), reg_esp, reg_flags);
+                printf("[CPU] CPU_IRET: Back to V86: CS=0x%x, IP=0x%x, SS=0x%x, SP=0x%x, FLAGS=0x%lx", SegValue(cs), reg_eip, SegValue(ss), reg_esp, reg_flags);
                 return;
             }
             if (n_flags & FLAG_VM) E_Exit("IRET from pmode to v86 with CPL!=0");
@@ -978,7 +978,7 @@ void CPU_IRET(bool use32, Bitu oldeip) {
             if (GETFLAG_IOPL < cpu.cpl) mask &= (~FLAG_IF);
             CPU_SetFlags(n_flags, mask);
             DestroyConditionFlags();
-            CPU_LOG("CPU_IRET: Same level: CS=0x%lx, IP=0x%lx, big=%d", n_cs_sel, n_eip, cpu.code.big);
+            printf("[CPU] CPU_IRET: Same level: CS=0x%lx, IP=0x%lx, big=%d", n_cs_sel, n_eip, cpu.code.big);
         } else {
             Bitu n_ss, n_esp;
             if (use32) {
@@ -1033,14 +1033,14 @@ void CPU_IRET(bool use32, Bitu oldeip) {
                 reg_sp = n_esp & 0xffff;
             }
             CPU_CheckSegments();
-            CPU_LOG("CPU_IRET: Outer level: CS=0x%lx, IP=0x%lx, big=%d", n_cs_sel, n_eip, cpu.code.big);
+            printf("[CPU] CPU_IRET: Outer level: CS=0x%lx, IP=0x%lx, big=%d", n_cs_sel, n_eip, cpu.code.big);
         }
         return;
     }
 }
 
 void CPU_JMP(bool use32, Bitu selector, Bitu offset, Bitu oldeip) {
-    CPU_LOG("CPU_JMP: use32=%d, selector=0x%lx, offset=0x%lx, oldeip=0x%lx", use32, selector, offset, oldeip);
+    printf("[CPU] CPU_JMP: use32=%d, selector=0x%lx, offset=0x%lx, oldeip=0x%lx", use32, selector, offset, oldeip);
     if (!cpu.pmode || (reg_flags & FLAG_VM)) {
         if (!use32) {
             reg_eip = offset & 0xffff;
@@ -1049,7 +1049,7 @@ void CPU_JMP(bool use32, Bitu selector, Bitu offset, Bitu oldeip) {
         }
         SegSet16(cs, selector);
         cpu.code.big = false;
-        CPU_LOG("CPU_JMP: Real/VM mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+        printf("[CPU] CPU_JMP: Real/VM mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
         return;
     } else {
         CPU_CHECK_COND((selector & 0xfffc) == 0,
@@ -1069,11 +1069,11 @@ void CPU_JMP(bool use32, Bitu selector, Bitu offset, Bitu oldeip) {
                 CPU_CHECK_COND(cpu.cpl != desc.DPL(),
                     "JMP:NC:RPL != DPL",
                     EXCEPTION_GP, selector & 0xfffc)
-                CPU_LOG("CPU_JMP: Code:NC to %lX:%lX big %ld", selector, offset, desc.Big());
+                printf("[CPU] CPU_JMP: Code:NC to %lX:%lX big %ld", selector, offset, desc.Big());
                 goto CODE_jmp;
             case DESC_CODE_N_C_A: case DESC_CODE_N_C_NA:
             case DESC_CODE_R_C_A: case DESC_CODE_R_C_NA:
-                CPU_LOG("CPU_JMP: Code:C to %lX:%lX big %ld", selector, offset, desc.Big());
+                printf("[CPU] CPU_JMP: Code:C to %lX:%lX big %ld", selector, offset, desc.Big());
                 CPU_CHECK_COND(cpu.cpl < desc.DPL(),
                     "JMP:C:CPL < DPL",
                     EXCEPTION_GP, selector & 0xfffc)
@@ -1086,7 +1086,7 @@ CODE_jmp:
                 cpu.code.big = desc.Big() > 0;
                 Segs.val[cs] = (selector & 0xfffc) | cpu.cpl;
                 reg_eip = offset;
-                CPU_LOG("CPU_JMP: Set CS=0x%x, IP=0x%x, big=%d", SegValue(cs), reg_eip, cpu.code.big);
+                printf("[CPU] CPU_JMP: Set CS=0x%x, IP=0x%x, big=%d", SegValue(cs), reg_eip, cpu.code.big);
                 return;
             case DESC_386_TSS_A:
                 CPU_CHECK_COND(desc.DPL() < cpu.cpl,
@@ -1095,7 +1095,7 @@ CODE_jmp:
                 CPU_CHECK_COND(desc.DPL() < rpl,
                     "JMP:TSS:dpl<rpl",
                     EXCEPTION_GP, selector & 0xfffc)
-                CPU_LOG("CPU_JMP: TSS to %lX", selector);
+                printf("[CPU] CPU_JMP: TSS to %lX", selector);
                 CPU_SwitchTask(selector, TSwitch_JMP, oldeip);
                 break;
             default:
@@ -1105,7 +1105,7 @@ CODE_jmp:
 }
 
 void CPU_CALL(bool use32, Bitu selector, Bitu offset, Bitu oldeip) {
-    CPU_LOG("CPU_CALL: use32=%d, selector=0x%lx, offset=0x%lx, oldeip=0x%lx", use32, selector, offset, oldeip);
+    printf("[CPU] CPU_CALL: use32=%d, selector=0x%lx, offset=0x%lx, oldeip=0x%lx", use32, selector, offset, oldeip);
     if (!cpu.pmode || (reg_flags & FLAG_VM)) {
         if (!use32) {
             CPU_Push16(SegValue(cs));
@@ -1118,7 +1118,7 @@ void CPU_CALL(bool use32, Bitu selector, Bitu offset, Bitu oldeip) {
         }
         cpu.code.big = false;
         SegSet16(cs, selector);
-        CPU_LOG("CPU_CALL: Real/VM mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+        printf("[CPU] CPU_CALL: Real/VM mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
         return;
     } else {
         CPU_CHECK_COND((selector & 0xfffc) == 0,
@@ -1138,14 +1138,14 @@ void CPU_CALL(bool use32, Bitu selector, Bitu offset, Bitu oldeip) {
                 CPU_CHECK_COND(call.DPL() != cpu.cpl,
                     "CALL:CODE:NC:DPL!=CPL",
                     EXCEPTION_GP, selector & 0xfffc)
-                CPU_LOG("CPU_CALL: CODE:NC to %lX:%lX", selector, offset);
+                printf("[CPU] CPU_CALL: CODE:NC to %lX:%lX", selector, offset);
                 goto call_code;
             case DESC_CODE_N_C_A: case DESC_CODE_N_C_NA:
             case DESC_CODE_R_C_A: case DESC_CODE_R_C_NA:
                 CPU_CHECK_COND(call.DPL() > cpu.cpl,
                     "CALL:CODE:C:DPL>CPL",
                     EXCEPTION_GP, selector & 0xfffc)
-                CPU_LOG("CPU_CALL: CODE:C to %lX:%lX", selector, offset);
+                printf("[CPU] CPU_CALL: CODE:C to %lX:%lX", selector, offset);
 call_code:
                 if (!call.saved.seg.p) {
                     CPU_Exception(EXCEPTION_NP, selector & 0xfffc);
@@ -1163,7 +1163,7 @@ call_code:
                 Segs.phys[cs] = call.GetBase();
                 cpu.code.big = call.Big() > 0;
                 Segs.val[cs] = (selector & 0xfffc) | cpu.cpl;
-                CPU_LOG("CPU_CALL: Set CS=0x%x, IP=0x%x, big=%d", SegValue(cs), reg_eip, cpu.code.big);
+                printf("[CPU] CPU_CALL: Set CS=0x%x, IP=0x%x, big=%d", SegValue(cs), reg_eip, cpu.code.big);
                 return;
             case DESC_386_CALL_GATE:
             case DESC_286_CALL_GATE:
@@ -1268,7 +1268,7 @@ call_code:
                                 CPU_Push16(oldcs);
                                 CPU_Push16(oldeip);
                             }
-                            CPU_LOG("CPU_CALL: Gate to inner level, set CS=0x%x, IP=0x%x, SS=0x%x, SP=0x%x", SegValue(cs), reg_eip, SegValue(ss), reg_esp);
+                            printf("[CPU] CPU_CALL: Gate to inner level, set CS=0x%x, IP=0x%x, SS=0x%x, SP=0x%x", SegValue(cs), reg_eip, SegValue(ss), reg_esp);
                             break;
                         } else if (n_cs_dpl > cpu.cpl)
                             E_Exit("CALL:GATE:CS DPL>CPL");
@@ -1286,7 +1286,7 @@ call_code:
                         cpu.code.big = n_cs_desc.Big() > 0;
                         reg_eip = n_eip;
                         if (!use32) reg_eip &= 0xffff;
-                        CPU_LOG("CPU_CALL: Gate to same level, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+                        printf("[CPU] CPU_CALL: Gate to same level, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
                         break;
                     default:
                         E_Exit("CALL:GATE:CS no executable segment");
@@ -1303,7 +1303,7 @@ call_code:
                 CPU_CHECK_COND(!call.saved.seg.p,
                     "CALL:TSS:Segment not present",
                     EXCEPTION_NP, selector & 0xfffc)
-                CPU_LOG("CPU_CALL: TSS to %lX", selector);
+                printf("[CPU] CPU_CALL: TSS to %lX", selector);
                 CPU_SwitchTask(selector, TSwitch_CALL_INT, oldeip);
                 break;
             case DESC_DATA_EU_RW_NA:
@@ -1317,7 +1317,7 @@ call_code:
 }
 
 void CPU_RET(bool use32, Bitu bytes, Bitu oldeip) {
-    CPU_LOG("CPU_RET: use32=%d, bytes=%lu, oldeip=0x%lx", use32, bytes, oldeip);
+    printf("[CPU] CPU_RET: use32=%d, bytes=%lu, oldeip=0x%lx", use32, bytes, oldeip);
     if (!cpu.pmode || (reg_flags & FLAG_VM)) {
         Bitu new_ip, new_cs;
         if (!use32) {
@@ -1331,7 +1331,7 @@ void CPU_RET(bool use32, Bitu bytes, Bitu oldeip) {
         SegSet16(cs, new_cs);
         reg_eip = new_ip;
         cpu.code.big = false;
-        CPU_LOG("CPU_RET: Real/VM mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+        printf("[CPU] CPU_RET: Real/VM mode, set CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
         return;
     } else {
         Bitu offset, selector;
@@ -1387,7 +1387,7 @@ RET_same_level:
             } else {
                 reg_sp += bytes;
             }
-            CPU_LOG("CPU_RET: Same level to %lX:%lX RPL %lX DPL %lX", selector, offset, rpl, desc.DPL());
+            printf("[CPU] CPU_RET: Same level to %lX:%lX RPL %lX DPL %lX", selector, offset, rpl, desc.DPL());
             return;
         } else {
             switch (desc.Type()) {
@@ -1462,7 +1462,7 @@ RET_same_level:
                 reg_sp = (n_esp & 0xffff) + bytes;
             }
             CPU_CheckSegments();
-            CPU_LOG("CPU_RET: Outer level to %lX:%lX RPL %lX DPL %lX", selector, offset, rpl, desc.DPL());
+            printf("[CPU] CPU_RET: Outer level to %lX:%lX RPL %lX DPL %lX", selector, offset, rpl, desc.DPL());
             return;
         }
     }
@@ -1473,12 +1473,12 @@ inline Bitu CPU_SLDT(void) {
 }
 
 inline bool CPU_LLDT(Bitu selector) {
-    CPU_LOG("CPU_LLDT: selector=0x%lx", selector);
+    printf("[CPU] CPU_LLDT: selector=0x%lx", selector);
     if (!cpu.gdt.LLDT(selector)) {
-        CPU_LOG("CPU_LLDT: Failed, selector=%lX", selector);
+        printf("[CPU] CPU_LLDT: Failed, selector=%lX", selector);
         return true;
     }
-    CPU_LOG("CPU_LLDT: Set to %lX", selector);
+    printf("[CPU] CPU_LLDT: Set to %lX", selector);
     return false;
 }
 
@@ -1487,39 +1487,39 @@ inline Bitu CPU_STR(void) {
 }
 
 inline bool CPU_LTR(Bitu selector) {
-    CPU_LOG("CPU_LTR: selector=0x%lx", selector);
+    printf("[CPU] CPU_LTR: selector=0x%lx", selector);
     if ((selector & 0xfffc) == 0) {
         cpu_tss.SetSelector(selector);
         return false;
     }
     TSS_Descriptor desc;
     if ((selector & 4) || (!cpu.gdt.GetDescriptor(selector, desc))) {
-        CPU_LOG("CPU_LTR: Failed, selector=%lX", selector);
+        printf("[CPU] CPU_LTR: Failed, selector=%lX", selector);
         return CPU_PrepareException(EXCEPTION_GP, selector);
     }
     if ((desc.Type() == DESC_286_TSS_A) || (desc.Type() == DESC_386_TSS_A)) {
         if (!desc.saved.seg.p) {
-            CPU_LOG("CPU_LTR: Failed, selector=%lX (not present)", selector);
+            printf("[CPU] CPU_LTR: Failed, selector=%lX (not present)", selector);
             return CPU_PrepareException(EXCEPTION_NP, selector);
         }
         if (!cpu_tss.SetSelector(selector)) E_Exit("LTR failed, selector=%zX", static_cast<uintptr_t>(selector));
         cpu_tss.desc.SetBusy(true);
         cpu_tss.SaveSelector();
     } else {
-        CPU_LOG("CPU_LTR: Failed, selector=%lX (type=%lX)", selector, desc.Type());
+        printf("[CPU] CPU_LTR: Failed, selector=%lX (type=%lX)", selector, desc.Type());
         return CPU_PrepareException(EXCEPTION_GP, selector);
     }
     return false;
 }
 
 inline void CPU_LGDT(Bitu limit, Bitu base) {
-    CPU_LOG("CPU_LGDT: base=0x%lx, limit=0x%lx", base, limit);
+    printf("[CPU] CPU_LGDT: base=0x%lx, limit=0x%lx", base, limit);
     cpu.gdt.SetLimit(limit);
     cpu.gdt.SetBase(base);
 }
 
 inline void CPU_LIDT(Bitu limit, Bitu base) {
-    CPU_LOG("CPU_LIDT: base=0x%lx, limit=0x%lx", base, limit);
+    printf("[CPU] CPU_LIDT: base=0x%lx, limit=0x%lx", base, limit);
     cpu.idt.SetLimit(limit);
     cpu.idt.SetBase(base);
 }
@@ -1542,7 +1542,7 @@ inline Bitu CPU_SIDT_limit(void) {
 
 static bool printed_cycles_auto_info = false;
 void CPU_SET_CRX(Bitu cr, Bitu value) {
-    CPU_LOG("CPU_SET_CRX: cr=%ld, value=0x%lx", cr, value);
+    printf("[CPU] CPU_SET_CRX: cr=%ld, value=0x%lx", cr, value);
     switch (cr) {
         case 0:
         {
@@ -1575,7 +1575,7 @@ void CPU_SET_CRX(Bitu cr, Bitu value) {
                 }
             }
             cpu.cr0 = value;
-            CPU_LOG("CPU_SET_CRX: Set CR0=0x%lx, pmode=%d", cpu.cr0, cpu.pmode);
+            printf("[CPU] CPU_SET_CRX: Set CR0=0x%lx, pmode=%d", cpu.cr0, cpu.pmode);
             break;
         }
         default:
@@ -1584,7 +1584,7 @@ void CPU_SET_CRX(Bitu cr, Bitu value) {
 }
 
 inline Bitu CPU_GET_CRX(Bitu cr) {
-    CPU_LOG("CPU_GET_CRX: cr=%ld, returning 0x%lx", cr, cpu.cr0);
+    printf("[CPU] CPU_GET_CRX: cr=%ld, returning 0x%lx", cr, cpu.cr0);
     switch (cr) {
         case 0: return cpu.cr0;
         default: E_Exit("Reading unsupported control register %zx", static_cast<uintptr_t>(cr));
@@ -1695,44 +1695,44 @@ Bitu SegValue(Bitu seg) {
 }
 
 void CPU_SetupFPU(bool force) {
-    CPU_LOG("CPU_SetupFPU: force=%d", force);
+    printf("[CPU] CPU_SetupFPU: force=%d", force);
     // Placeholder: FPU setup not implemented
-    CPU_LOG("CPU_SetupFPU: FPU setup skipped (not implemented)");
+    printf("[CPU] CPU_SetupFPU: FPU setup skipped (not implemented)");
 }
 
 void CPU_FPU_ESC0(Bitu op1, Bitu rm) {
-    CPU_LOG("CPU_FPU_ESC0: op1=0x%lx, rm=0x%lx", op1, rm);
+    printf("[CPU] CPU_FPU_ESC0: op1=0x%lx, rm=0x%lx", op1, rm);
     // Placeholder: FPU instruction handling not implemented
 }
 
 void CPU_FPU_ESC1(Bitu op1, Bitu rm) {
-    CPU_LOG("CPU_FPU_ESC1: op1=0x%lx, rm=0x%lx", op1, rm);
+    printf("[CPU] CPU_FPU_ESC1: op1=0x%lx, rm=0x%lx", op1, rm);
     // Placeholder: FPU instruction handling not implemented
 }
 
 // Continue with other FPU escape functions (ESC2 to ESC7) as needed
-void CPU_FPU_ESC2(Bitu op1, Bitu rm) { CPU_LOG("CPU_FPU_ESC2: op1=0x%lx, rm=0x%lx", op1, rm); }
-void CPU_FPU_ESC3(Bitu op1, Bitu rm) { CPU_LOG("CPU_FPU_ESC3: op1=0x%lx, rm=0x%lx", op1, rm); }
-void CPU_FPU_ESC4(Bitu op1, Bitu rm) { CPU_LOG("CPU_FPU_ESC4: op1=0x%lx, rm=0x%lx", op1, rm); }
-void CPU_FPU_ESC5(Bitu op1, Bitu rm) { CPU_LOG("CPU_FPU_ESC5: op1=0x%lx, rm=0x%lx", op1, rm); }
-void CPU_FPU_ESC6(Bitu op1, Bitu rm) { CPU_LOG("CPU_FPU_ESC6: op1=0x%lx, rm=0x%lx", op1, rm); }
-void CPU_FPU_ESC7(Bitu op1, Bitu rm) { CPU_LOG("CPU_FPU_ESC7: op1=0x%lx, rm=0x%lx", op1, rm); }
+void CPU_FPU_ESC2(Bitu op1, Bitu rm) { printf("[CPU] CPU_FPU_ESC2: op1=0x%lx, rm=0x%lx", op1, rm); }
+void CPU_FPU_ESC3(Bitu op1, Bitu rm) { printf("[CPU] CPU_FPU_ESC3: op1=0x%lx, rm=0x%lx", op1, rm); }
+void CPU_FPU_ESC4(Bitu op1, Bitu rm) { printf("[CPU] CPU_FPU_ESC4: op1=0x%lx, rm=0x%lx", op1, rm); }
+void CPU_FPU_ESC5(Bitu op1, Bitu rm) { printf("[CPU] CPU_FPU_ESC5: op1=0x%lx, rm=0x%lx", op1, rm); }
+void CPU_FPU_ESC6(Bitu op1, Bitu rm) { printf("[CPU] CPU_FPU_ESC6: op1=0x%lx, rm=0x%lx", op1, rm); }
+void CPU_FPU_ESC7(Bitu op1, Bitu rm) { printf("[CPU] CPU_FPU_ESC7: op1=0x%lx, rm=0x%lx", op1, rm); }
 
 void CPU_HLT(Bitu oldeip) {
-    CPU_LOG("CPU_HLT: oldeip=0x%lx", oldeip);
+    printf("[CPU] CPU_HLT: oldeip=0x%lx", oldeip);
     if (cpu.pmode && cpu.cpl != 0) {
-        CPU_LOG("CPU_HLT: HLT in pmode with CPL=%ld, raising #GP", cpu.cpl);
+        printf("[CPU] CPU_HLT: HLT in pmode with CPL=%ld, raising #GP", cpu.cpl);
         CPU_Exception(EXCEPTION_GP, 0);
         return;
     }
     reg_eip = oldeip;
     // Simulate CPU_IODelay(100) with a placeholder
     CPU_Cycles = 0;
-    CPU_LOG("CPU_HLT: Halted");
+    printf("[CPU] CPU_HLT: Halted");
 }
 
 void CPU_DebugException(void) {
-    CPU_LOG("CPU_DebugException");
+    printf("[CPU] CPU_DebugException");
     cpu.exception.which = 1; // Simulate EXCEPTION_DB (debug exception)
     CPU_Interrupt(1, CPU_INT_EXCEPTION, reg_eip);
 }
@@ -1744,11 +1744,11 @@ void CPU_Cycles_AutoAdjust(void) {
         LOG_MSG("Cycles: Auto adjustment enabled");
     }
     // Placeholder for cycle adjustment logic
-    CPU_LOG("CPU_Cycles_AutoAdjust: Adjusting cycles");
+    printf("[CPU] CPU_Cycles_AutoAdjust: Adjusting cycles");
 }
 
 void CPU_SetCycleMax(Bitu cycles) {
-    CPU_LOG("CPU_SetCycleMax: cycles=%ld", cycles);
+    printf("[CPU] CPU_SetCycleMax: cycles=%ld", cycles);
     CPU_CycleMax = cycles;
     CPU_CycleLeft = 0;
     CPU_Cycles = 0;
@@ -1756,27 +1756,27 @@ void CPU_SetCycleMax(Bitu cycles) {
         CPU_CyclePercUsed = 100;
     }
     GFX_SetTitle(CPU_CycleMax, -1, false);
-    CPU_LOG("CPU_SetCycleMax: Set to %d", CPU_CycleMax);
+    printf("[CPU] CPU_SetCycleMax: Set to %d", CPU_CycleMax);
 }
 
 void CPU_SetCyclePerc(int perc) {
-    CPU_LOG("CPU_SetCyclePerc: perc=%d", perc);
+    printf("[CPU] CPU_SetCyclePerc: perc=%d", perc);
     if (perc < 1) perc = 1;
     if (perc > 1000) perc = 1000;
     CPU_CyclePercUsed = perc;
     CPU_SetCycleMax((CPU_CycleMax * perc) / 100);
-    CPU_LOG("CPU_SetCyclePerc: Set to %d%%, new max=%d", perc, CPU_CycleMax);
+    printf("[CPU] CPU_SetCyclePerc: Set to %d%%, new max=%d", perc, CPU_CycleMax);
 }
 
 void CPU_Change_Config(Section* newconfig) {
-    CPU_LOG("CPU_Change_Config: newconfig=%p", newconfig);
+    printf("[CPU] CPU_Change_Config: newconfig=%p", newconfig);
     if (!newconfig) {
-        CPU_LOG("CPU_Change_Config: Null config, aborting");
+        printf("[CPU] CPU_Change_Config: Null config, aborting");
         return;
     }
     Section_prop* section = static_cast<Section_prop*>(newconfig);
     if (!section) {
-        CPU_LOG("CPU_Change_Config: Invalid section type, aborting");
+        printf("[CPU] CPU_Change_Config: Invalid section type, aborting");
         return;
     }
 
@@ -1784,10 +1784,10 @@ void CPU_Change_Config(Section* newconfig) {
     int prop_count = 0;
     while (section->Get_prop(prop_count)) {
         Property* prop = section->Get_prop(prop_count);
-        CPU_LOG("CPU_Change_Config: Property %d: %s", prop_count, prop->GetValue().ToString().c_str());
+        printf("[CPU] CPU_Change_Config: Property %d: %s", prop_count, prop->GetValue().ToString().c_str());
         prop_count++;
     }
-    CPU_LOG("CPU_Change_Config: Total properties found: %d", prop_count);
+    printf("[CPU] CPU_Change_Config: Total properties found: %d", prop_count);
 
     // Get properties with fallback to defaults if missing
     Property* p_core = section->Get_prop(0);      // core
@@ -1804,10 +1804,10 @@ void CPU_Change_Config(Section* newconfig) {
     int cycledown = p_cycledown ? static_cast<int>(p_cycledown->GetValue()) : 100;
 
     if (!p_core || !p_cycles || !p_cycleup || !p_cycledown || !p_arch) {
-        CPU_LOG("CPU_Change_Config: Some properties missing, using defaults: core=%s, cputype=%s, cycles=%d, cycleup=%d, cycledown=%d",
+        printf("[CPU] CPU_Change_Config: Some properties missing, using defaults: core=%s, cputype=%s, cycles=%d, cycleup=%d, cycledown=%d",
                 core.c_str(), cputype.c_str(), cycles, cycleup, cycledown);
     } else {
-        CPU_LOG("CPU_Change_Config: core=%s, cputype=%s, cycles=%d, cycleup=%d, cycledown=%d",
+        printf("[CPU] CPU_Change_Config: core=%s, cputype=%s, cycles=%d, cycleup=%d, cycledown=%d",
                 core.c_str(), cputype.c_str(), cycles, cycleup, cycledown);
     }
 
@@ -1836,7 +1836,7 @@ void CPU_Change_Config(Section* newconfig) {
     }
 #endif
     else {
-        CPU_LOG("CPU_Change_Config: Unknown core: %s, defaulting to auto", core.c_str());
+        printf("[CPU] CPU_Change_Config: Unknown core: %s, defaulting to auto", core.c_str());
         CPU_AutoDetermineMode |= CPU_AUTODETERMINE_CORE;
     }
 
@@ -1859,7 +1859,7 @@ void CPU_Change_Config(Section* newconfig) {
     } else if (cputype == "pentium_mmx") {
         CPU_ArchitectureType = CPU_ARCHTYPE_P55C;
     } else {
-        CPU_LOG("CPU_Change_Config: Unknown cputype: %s, defaulting to auto", cputype.c_str());
+        printf("[CPU] CPU_Change_Config: Unknown cputype: %s, defaulting to auto", cputype.c_str());
         CPU_ArchitectureType = CPU_ARCHTYPE_MIXED;
     }
 
@@ -1876,11 +1876,11 @@ void CPU_Change_Config(Section* newconfig) {
     }
 
     CPU_SetCycleMax(CPU_CycleMax);
-    CPU_LOG("CPU_Change_Config: Configuration applied successfully");
+    printf("[CPU] CPU_Change_Config: Configuration applied successfully");
 }
 
 void CPU_Init(Section* sec) {
-    CPU_LOG("CPU_Init: section=%p", sec);
+    printf("[CPU] CPU_Init: section=%p", sec);
     CPU_Change_Config(sec);
     // Skip FPU setup (not implemented)
     cpu.cr0 = 0x8 | 0x2; // Simulate CR0_FPUENABLE | CR0_MONITORPROCESSOR
@@ -1903,27 +1903,27 @@ void CPU_Init(Section* sec) {
     CPU_CycleLeft = 0;
     CPU_IODelayRemoved = 0;
     CPU_PrefetchQueueSize = 0;
-    CPU_LOG("CPU_Init: CPU initialized, CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
+    printf("[CPU] CPU_Init: CPU initialized, CS=0x%x, IP=0x%x", SegValue(cs), reg_eip);
 }
 
 void CPU_ShutDown(Section* sec) {
-    CPU_LOG("CPU_ShutDown: section=%p", sec);
+    printf("[CPU] CPU_ShutDown: section=%p", sec);
 #if (C_DYNAMIC_X86)
     CPU_Core_Dyn_X86_Cache_Close();
 #endif
 #if (C_DYNREC)
     CPU_Core_Dynrec_Cache_Close();
 #endif
-    CPU_LOG("CPU_ShutDown: CPU shut down");
+    printf("[CPU] CPU_ShutDown: CPU shut down");
 }
 
 void init_dosbox_cpu(void) {
-    CPU_LOG("init_dosbox_cpu: Initializing CPU");
+    printf("[CPU] init_dosbox_cpu: Initializing CPU");
     // Access CPU section without 'control' (assume global or alternative access)
     Section* sec = static_cast<Section_prop*>(NULL); // Placeholder: Replace with actual section retrieval
     if (!sec) {
         E_Exit("No CPU section found in configuration");
     }
     CPU_Init(sec);
-    CPU_LOG("init_dosbox_cpu: CPU initialization complete");
+    printf("[CPU] init_dosbox_cpu: CPU initialization complete");
 }
