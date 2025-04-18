@@ -756,7 +756,13 @@ void Section::AddDestroyFunction(SectionFunction func, bool canchange) {
 }
 
 void Section::ExecuteInit(bool initall) {
+    fprintf(stderr, "[SETUP] Section::ExecuteInit for section=%s, initall=%d\n", sectionname.c_str(), initall);
     for (const auto& wrapper : initfunctions) {
+        fprintf(stderr, "[SETUP] Calling init function=%p, canchange=%d\n", (void*)wrapper.function, wrapper.canchange);
+        if (wrapper.function == nullptr) {
+            fprintf(stderr, "[SETUP-ERROR] Null init function in section=%s\n", sectionname.c_str());
+            continue; // Skip null functions to avoid segfault
+        }
         if (initall || wrapper.canchange) {
             wrapper.function(this);
         }
