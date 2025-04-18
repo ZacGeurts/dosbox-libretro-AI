@@ -9,7 +9,7 @@
  *
  *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  *  GNU General Public License for more details.
  *
  *  You should have received a copy of the GNU General Public License
@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cctype>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -38,18 +39,18 @@
 #include "setup.h"
 #include "dosbox.h"
 #include "mapper.h"
+#include "joystick.h"
 #include "midi.h"
 #include "mixer.h"
 #include "control.h"
 #include "pic.h"
-#include "joystick.h"
+#include "vga.h"
+#include "render.h"
 #include "ints/int10.h"
-#include "mem.h"
-#include <cstdio> // For fprintf, snprintf
+#include "shell.h"
+#include <cstdio>
 
 #define RETRO_DEVICE_JOYSTICK RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1)
-
-retro_log_printf_t log_cb = nullptr; // Definition of log_cb
 
 #ifndef PATH_MAX_LENGTH
 #define PATH_MAX_LENGTH 4096
@@ -75,10 +76,12 @@ void MIXER_CallBack(void* userdata, uint8_t* stream, int len);
 
 extern Config* control;
 extern Bitu g_memsize;
+extern Int10Data int10;
 MachineType machine = MCH_VGA;
-SVGACards svgaCard = SVGA_None;
+SVGACards svgaCard = SVGA_S3Trio;
 
-/* Input variables */
+retro_log_printf_t log_cb = nullptr;
+
 int current_port = 0;
 bool autofire = false;
 std::array<bool, kMaxPorts> gamepad{};
@@ -86,31 +89,26 @@ std::array<bool, kMaxPorts> connected{};
 bool emulated_mouse = false;
 unsigned deadzone = 0;
 
-/* Core options */
 bool use_core_options = true;
 bool adv_core_options = false;
 
-/* Directories */
 std::string retro_save_directory;
 std::string retro_system_directory;
 std::string retro_content_directory;
 std::string retro_library_name = "DOSBox";
 
-/* Libretro variables */
 retro_video_refresh_t video_cb = nullptr;
 retro_audio_sample_batch_t audio_batch_cb = nullptr;
 retro_input_poll_t poll_cb = nullptr;
 retro_input_state_t input_cb = nullptr;
 retro_environment_t environ_cb = nullptr;
 
-/* DOSBox state */
 std::string loadPath;
 std::string configPath;
 bool dosbox_exit = false;
 bool frontend_exit = false;
 bool is_restarting = false;
 
-/* Video variables */
 extern Bit8u RDOSGFXbuffer[1024 * 768 * 4];
 extern Bitu RDOSGFXwidth, RDOSGFXheight, RDOSGFXpitch;
 extern unsigned RDOSGFXcolorMode;
@@ -118,39 +116,58 @@ extern void* RDOSGFXhaveFrame;
 unsigned currentWidth = 0;
 unsigned currentHeight = 0;
 
-/* Audio variables */
 alignas(16) std::array<uint8_t, 829 * 4> audioData{};
 uint32_t samplesPerFrame = 735;
 
-/* Callbacks */
 void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
 void retro_set_audio_sample(retro_audio_sample_t /*cb*/) {}
 void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) { audio_batch_cb = cb; }
 void retro_set_input_poll(retro_input_poll_t cb) { poll_cb = cb; }
 void retro_set_input_state(retro_input_state_t cb) { input_cb = cb; }
 
-/* Helper functions */
 bool update_dosbox_variable(std::string_view section, std::string_view var, std::string_view val) noexcept {
-    fprintf(stderr, "[LIBRETRO] Updating variable: section=%s, var=%s, val=%s\n", 
-            std::string(section).c_str(), std::string(var).c_str(), std::string(val).c_str());
+    printf("[LIBRETRO] update_dosbox_variable: section=%s, var=%s, value=%s\n",
+           std::string(section).c_str(), std::string(var).c_str(), std::string(val).c_str());
+    if (!control) {
+        printf("[LIBRETRO] update_dosbox_variable: control is null\n");
+        if (log_cb) log_cb(RETRO_LOG_ERROR, "[LIBRETRO] update_dosbox_variable: control is null\n");
+        return false;
+    }
+    if (log_cb) {
+        log_cb(RETRO_LOG_INFO, "[LIBRETRO] update_dosbox_variable: section=%s, var=%s, value=%s\n",
+               std::string(section).c_str(), std::string(var).c_str(), std::string(val).c_str());
+    }
     if (Section* section_ptr = control->GetSection(std::string{section}); section_ptr) {
         if (Section_prop* secprop = dynamic_cast<Section_prop*>(section_ptr)) {
             section_ptr->ExecuteDestroy(false);
             std::string inputline = std::string{var} + '=' + std::string{val};
             bool result = section_ptr->HandleInputline(inputline.c_str());
             section_ptr->ExecuteInit(false);
-            fprintf(stderr, "[LIBRETRO] Update %s: %s\n", inputline.c_str(), result ? "success" : "failed");
+            printf("[LIBRETRO] update_dosbox_variable: %s %s\n", inputline.c_str(), result ? "success" : "failed");
+            if (log_cb) {
+                log_cb(RETRO_LOG_INFO, "[LIBRETRO] update_dosbox_variable: %s %s\n",
+                       inputline.c_str(), result ? "success" : "failed");
+            }
             return result;
         } else {
-            fprintf(stderr, "[LIBRETRO] ERROR: Section %s is not a Section_prop\n", std::string(section).c_str());
+            printf("[LIBRETRO] update_dosbox_variable: Section %s is not a Section_prop\n",
+                   std::string(section).c_str());
+            if (log_cb) {
+                log_cb(RETRO_LOG_ERROR, "[LIBRETRO] update_dosbox_variable: Section %s is not a Section_prop\n",
+                       std::string(section).c_str());
+            }
         }
     } else {
-        fprintf(stderr, "[LIBRETRO] ERROR: Section %s not found\n", std::string(section).c_str());
+        printf("[LIBRETRO] update_dosbox_variable: Section %s not found\n",
+               std::string(section).c_str());
+        if (log_cb) {
+            log_cb(RETRO_LOG_ERROR, "[LIBRETRO] update_dosbox_variable: Section %s not found\n",
+                   std::string(section).c_str());
+        }
     }
     return false;
 }
 
-/* Libretro core implementation */
 static const retro_variable vars[] = {
     {"dosbox_use_options", "Enable core-options; true|false"},
     {"dosbox_adv_options", "Enable advanced core-options; false|true"},
@@ -204,7 +221,7 @@ static const retro_variable vars_advanced[] = {
     {"dosbox_sblaster_irq", "Sound Blaster IRQ; 5|7|9|10|11|12|3"},
     {"dosbox_sblaster_dma", "Sound Blaster DMA; 1|3|5|6|7|0"},
     {"dosbox_sblaster_hdma", "Sound Blaster High DMA; 7|0|1|3|5|6"},
-    {"dosbox_sblaster_opl_mode", "Sound Blaster OPL Mode; auto|cms|op12|dualop12|op13|op13gold|none"},
+    {"dosbox_sblaster_opl_mode", "Sound Blaster OPL Mode; auto|cms|opl2|dualopl2|opl3|opl3gold|none"},
     {"dosbox_sblaster_opl_emu", "Sound Blaster OPL Provider; default|compat|fast|mame"},
     {"dosbox_pcspeaker", "Enable PC-Speaker; false|true"},
     {"dosbox_tandy", "Enable Tandy Sound System; auto|on|off"},
@@ -220,6 +237,8 @@ static const retro_variable vars_advanced[] = {
 };
 
 void check_variables() noexcept {
+    printf("[LIBRETRO] Entering check_variables\n");
+    static bool handlers_added = false;
     static unsigned cycles = 0, cycles_fine = 0;
     static unsigned cycles_multiplier = 0, cycles_multiplier_fine = 0;
     static bool update_cycles = false;
@@ -229,7 +248,8 @@ void check_variables() noexcept {
     var.key = "dosbox_use_options";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         use_core_options = std::string_view{var.value} == "true";
-        fprintf(stderr, "[LIBRETRO] use_core_options=%d\n", use_core_options);
+        printf("[LIBRETRO] use_core_options=%d\n", use_core_options);
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] use_core_options=%d\n", use_core_options);
     }
 
     var.key = "dosbox_adv_options";
@@ -238,68 +258,76 @@ void check_variables() noexcept {
         if (new_adv != adv_core_options) {
             adv_core_options = new_adv;
             environ_cb(RETRO_ENVIRONMENT_SET_VARIABLES, const_cast<retro_variable*>(adv_core_options ? vars_advanced : vars));
-            fprintf(stderr, "[LIBRETRO] adv_core_options=%d\n", adv_core_options);
+            printf("[LIBRETRO] adv_core_options=%d\n", adv_core_options);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] adv_core_options=%d\n", adv_core_options);
         }
     }
 
     if (!use_core_options) {
-        fprintf(stderr, "[LIBRETRO] Core options disabled, skipping variable checks\n");
+        printf("[LIBRETRO] Core options disabled, skipping variable checks\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Core options disabled, skipping variable checks\n");
         return;
     }
 
     var.key = "dosbox_machine_type";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::string_view machine_type{var.value};
-        fprintf(stderr, "[LIBRETRO] Machine type: %s\n", std::string(machine_type).c_str());
+        MachineType new_machine = MCH_VGA;
+        SVGACards new_svga = SVGA_S3Trio;
+        bool vesa_nolfb = false, vesa_oldvbe = false;
+
         if (machine_type == "hercules") {
-            machine = MCH_HERC;
-            svgaCard = SVGA_None;
+            new_machine = MCH_HERC;
+            new_svga = SVGA_None;
         } else if (machine_type == "cga") {
-            machine = MCH_CGA;
-            svgaCard = SVGA_None;
+            new_machine = MCH_CGA;
+            new_svga = SVGA_None;
         } else if (machine_type == "pcjr") {
-            machine = MCH_PCJR;
-            svgaCard = SVGA_None;
+            new_machine = MCH_PCJR;
+            new_svga = SVGA_None;
         } else if (machine_type == "tandy") {
-            machine = MCH_TANDY;
-            svgaCard = SVGA_None;
+            new_machine = MCH_TANDY;
+            new_svga = SVGA_None;
         } else if (machine_type == "ega") {
-            machine = MCH_EGA;
-            svgaCard = SVGA_None;
+            new_machine = MCH_EGA;
+            new_svga = SVGA_None;
         } else if (machine_type == "svga_s3") {
-            machine = MCH_VGA;
-            svgaCard = SVGA_S3Trio;
+            new_svga = SVGA_S3Trio;
         } else if (machine_type == "svga_et4000") {
-            machine = MCH_VGA;
-            svgaCard = SVGA_TsengET4K;
+            new_svga = SVGA_TsengET4K;
         } else if (machine_type == "svga_et3000") {
-            machine = MCH_VGA;
-            svgaCard = SVGA_TsengET3K;
+            new_svga = SVGA_TsengET3K;
         } else if (machine_type == "svga_paradise") {
-            machine = MCH_VGA;
-            svgaCard = SVGA_ParadisePVGA1A;
+            new_svga = SVGA_ParadisePVGA1A;
         } else if (machine_type == "vesa_nolfb") {
-            machine = MCH_VGA;
-            svgaCard = SVGA_S3Trio;
-            int10.vesa_nolfb = true;
+            new_svga = SVGA_S3Trio;
+            vesa_nolfb = true;
         } else if (machine_type == "vesa_oldvbe") {
-            machine = MCH_VGA;
-            svgaCard = SVGA_S3Trio;
-            int10.vesa_oldvbe = true;
+            new_svga = SVGA_S3Trio;
+            vesa_oldvbe = true;
         } else {
-            machine = MCH_VGA;
-            svgaCard = SVGA_None;
+            new_svga = SVGA_S3Trio;
         }
-        update_dosbox_variable("dosbox", "machine", machine_type);
+
+        if (machine != new_machine || svgaCard != new_svga || int10.vesa_nolfb != vesa_nolfb || int10.vesa_oldvbe != vesa_oldvbe) {
+            machine = new_machine;
+            svgaCard = new_svga;
+            int10.vesa_nolfb = vesa_nolfb;
+            int10.vesa_oldvbe = vesa_oldvbe;
+            update_dosbox_variable("dosbox", "machine", machine_type);
+            printf("[LIBRETRO] Machine type: %s\n", std::string(machine_type).c_str());
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Machine type: %s\n", std::string(machine_type).c_str());
+        }
     }
 
     var.key = "dosbox_emulated_mouse";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
-        bool new_mouse = std::string_view{var.value} == "true";
+        bool new_mouse = std::string_view{var.value} == "enable";
         if (new_mouse != emulated_mouse) {
             emulated_mouse = new_mouse;
             MAPPER_Init();
-            fprintf(stderr, "[LIBRETRO] emulated_mouse=%d\n", emulated_mouse);
+            printf("[LIBRETRO] emulated_mouse=%d\n", emulated_mouse);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] emulated_mouse=%d\n", emulated_mouse);
         }
     }
 
@@ -310,42 +338,48 @@ void check_variables() noexcept {
         if (new_deadzone != deadzone) {
             deadzone = new_deadzone;
             MAPPER_Init();
-            fprintf(stderr, "[LIBRETRO] deadzone=%u\n", deadzone);
+            printf("[LIBRETRO] deadzone=%u\n", deadzone);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] deadzone=%u\n", deadzone);
         }
     }
 
     var.key = "dosbox_cpu_cycles_mode";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         update_cycles = true;
-        fprintf(stderr, "[LIBRETRO] cpu_cycles_mode=%s\n", var.value);
+        printf("[LIBRETRO] cpu_cycles_mode=%s\n", var.value);
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] cpu_cycles_mode=%s\n", var.value);
     }
 
     var.key = "dosbox_cpu_cycles";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles);
         update_cycles = true;
-        fprintf(stderr, "[LIBRETRO] cpu_cycles=%u\n", cycles);
+        printf("[LIBRETRO] cpu_cycles=%u\n", cycles);
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] cpu_cycles=%u\n", cycles);
     }
 
     var.key = "dosbox_cpu_cycles_multiplier";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles_multiplier);
         update_cycles = true;
-        fprintf(stderr, "[LIBRETRO] cpu_cycles_multiplier=%u\n", cycles_multiplier);
+        printf("[LIBRETRO] cpu_cycles_multiplier=%u\n", cycles_multiplier);
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] cpu_cycles_multiplier=%u\n", cycles_multiplier);
     }
 
     var.key = "dosbox_cpu_cycles_fine";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles_fine);
         update_cycles = true;
-        fprintf(stderr, "[LIBRETRO] cpu_cycles_fine=%u\n", cycles_fine);
+        printf("[LIBRETRO] cpu_cycles_fine=%u\n", cycles_fine);
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] cpu_cycles_fine=%u\n", cycles_fine);
     }
 
     var.key = "dosbox_cpu_cycles_multiplier_fine";
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
         std::from_chars(var.value, var.value + ::strlen(var.value), cycles_multiplier_fine);
         update_cycles = true;
-        fprintf(stderr, "[LIBRETRO] cpu_cycles_multiplier_fine=%u\n", cycles_multiplier_fine);
+        printf("[LIBRETRO] cpu_cycles_multiplier_fine=%u\n", cycles_multiplier_fine);
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] cpu_cycles_multiplier_fine=%u\n", cycles_multiplier_fine);
     }
 
     var.key = "dosbox_cpu_type";
@@ -364,12 +398,12 @@ void check_variables() noexcept {
     }
 
     if (update_cycles) {
-        if (var.value && std::string_view{var.value} == "fixed") {
+        if (std::string_view{var.value} == "fixed") {
             char s[16];
             auto result = std::to_chars(s, s + sizeof(s), cycles * cycles_multiplier + cycles_fine * cycles_multiplier_fine);
-            *result.ptr = '\0'; // Null-terminate
+            *result.ptr = '\0';
             update_dosbox_variable("cpu", "cycles", s);
-        } else if (var.value) {
+        } else {
             update_dosbox_variable("cpu", "cycles", var.value);
         }
         update_cycles = false;
@@ -392,21 +426,22 @@ void check_variables() noexcept {
     }
 #endif
 
-    // Add serial port configuration
     for (int i = 1; i <= 4; ++i) {
         char key[16];
         snprintf(key, sizeof(key), "dosbox_serial%d", i);
         var.key = key;
         if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value) {
-            char section[16];
-            snprintf(section, sizeof(section), "serial%d", i);
-            update_dosbox_variable("serial", section, var.value);
-            fprintf(stderr, "[LIBRETRO] serial%d=%s\n", i, var.value);
+            char prop[16];
+            snprintf(prop, sizeof(prop), "serial%d", i);
+            update_dosbox_variable("serial", prop, var.value);
+            printf("[LIBRETRO] serial%d=%s\n", i, var.value);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] serial%d=%s\n", i, var.value);
         } else {
-            char section[16];
-            snprintf(section, sizeof(section), "serial%d", i);
-            update_dosbox_variable("serial", section, "disabled");
-            fprintf(stderr, "[LIBRETRO] serial%d=defaulted to disabled\n", i);
+            char prop[16];
+            snprintf(prop, sizeof(prop), "serial%d", i);
+            update_dosbox_variable("serial", prop, "disabled");
+            printf("[LIBRETRO] serial%d=defaulted to disabled\n", i);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] serial%d=defaulted to disabled\n", i);
         }
     }
 
@@ -451,6 +486,13 @@ void check_variables() noexcept {
             update_dosbox_variable("speaker", "disney", var.value);
         }
     }
+
+    if (!handlers_added) {
+        printf("[LIBRETRO] No mapper handlers defined, skipping registration\n");
+        if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] No mapper handlers defined, skipping registration\n");
+        handlers_added = true;
+    }
+    printf("[LIBRETRO] Exiting check_variables\n");
 }
 
 void leave_thread(Bitu /*unused*/) noexcept {
@@ -460,83 +502,75 @@ void leave_thread(Bitu /*unused*/) noexcept {
 }
 
 void start_dosbox() {
-    fprintf(stderr, "[DOSBOX] Starting DOSBox, loadPath=%s, configPath=%s\n", loadPath.c_str(), configPath.c_str());
+    printf("[LIBRETRO] Entering start_dosbox\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering start_dosbox\n");
+
+    if (control) {
+        printf("[LIBRETRO] Config already initialized, resetting\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Config already initialized, resetting\n");
+        delete control;
+        control = nullptr;
+    }
 
     std::array<const char*, 2> argv = {"dosbox", loadPath.empty() ? nullptr : loadPath.c_str()};
     CommandLine com_line(loadPath.empty() ? 1 : 2, argv.data());
-    Config myconf(&com_line);
-    control = &myconf;
-    fprintf(stderr, "[DOSBOX] CommandLine initialized, argc=%d\n", com_line.GetCount());
-
-    fprintf(stderr, "[DOSBOX] Checking core variables\n");
-    check_variables();
-
-    fprintf(stderr, "[DOSBOX] Initializing DOSBox subsystems\n");
-    DOSBOX_Init();
-
-    // Ensure [cpu] section exists and has default properties
-    Section* cpu_section = control->AddSection_prop("cpu", nullptr);
-    Section_prop* cpu_prop = static_cast<Section_prop*>(cpu_section);
-    cpu_prop->Add_string("core", Property::Changeable::Always, "auto");
-    cpu_prop->Add_string("cputype", Property::Changeable::Always, "auto");
-    cpu_prop->Add_int("cycles", Property::Changeable::Always, 3000);
-    cpu_prop->Add_int("cycleup", Property::Changeable::Always, 100);
-    cpu_prop->Add_int("cycledown", Property::Changeable::Always, 100);
-
-    // Ensure [serial] section exists with default properties
-    Section* serial_section = control->AddSection_prop("serial", nullptr);
-    Section_prop* serial_prop = static_cast<Section_prop*>(serial_section);
-    serial_prop->Add_string("serial1", Property::Changeable::Always, "disabled");
-    serial_prop->Add_string("serial2", Property::Changeable::Always, "disabled");
-    serial_prop->Add_string("serial3", Property::Changeable::Always, "disabled");
-    serial_prop->Add_string("serial4", Property::Changeable::Always, "disabled");
+    control = new Config(&com_line);
+    if (!control) {
+        printf("[LIBRETRO] Failed to create Config\n");
+        if (log_cb) log_cb(RETRO_LOG_ERROR, "[LIBRETRO] Failed to create Config\n");
+        return;
+    }
+    printf("[LIBRETRO] CommandLine initialized, argc=%d\n", com_line.GetCount());
+    if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] CommandLine initialized, argc=%d\n", com_line.GetCount());
 
     if (!configPath.empty()) {
-        fprintf(stderr, "[DOSBOX] Parsing config file: %s\n", configPath.c_str());
+        printf("[LIBRETRO] Parsing config file: %s\n", configPath.c_str());
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Parsing config file: %s\n", configPath.c_str());
         control->ParseConfigFile(configPath.c_str());
     }
 
-    fprintf(stderr, "[DOSBOX] Checking core variables again\n");
     check_variables();
-
     if (!is_restarting) {
-        fprintf(stderr, "[DOSBOX] Initializing Config\n");
+        printf("[LIBRETRO] Initializing DOSBox subsystems\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Initializing DOSBox subsystems\n");
+        DOSBOX_Init();
+        printf("[LIBRETRO] Initializing Config\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Initializing Config\n");
         control->Init();
     }
 
-    fprintf(stderr, "[DOSBOX] Switching to main thread\n");
+    check_variables();
     co_switch(mainThread);
-    fprintf(stderr, "[DOSBOX] Scheduling frontend interrupt\n");
     PIC_AddEvent(leave_thread, 1000.0f / 60.0f, 0);
 
-    fprintf(stderr, "[DOSBOX] Starting DOSBox main loop\n");
     try {
+        printf("[LIBRETRO] Starting DOS shell\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Starting DOS shell\n");
         control->StartUp();
-        fprintf(stderr, "[DOSBOX] StartUp completed\n");
     } catch (int) {
-        fprintf(stderr, "[DOSBOX] Frontend requested exit during StartUp\n");
+        printf("[LIBRETRO] Frontend asked to exit\n");
+        if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] Frontend asked to exit\n");
         return;
     }
-
-    fprintf(stderr, "[DOSBOX] DOSBox requested exit\n");
+    printf("[LIBRETRO] DOSBox asked to exit\n");
+    if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] DOSBox asked to exit\n");
     dosbox_exit = true;
+    printf("[LIBRETRO] Exiting start_dosbox\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting start_dosbox\n");
 }
 
 void wrap_dosbox() {
+    printf("[LIBRETRO] Entering wrap_dosbox\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering wrap_dosbox\n");
     start_dosbox();
-    co_switch(mainThread);
-
-    while (true) {
-        if (log_cb) {
-            log_cb(RETRO_LOG_ERROR, "Running a dead DOSBox instance\n");
-        }
-        co_switch(mainThread);
-    }
+    printf("[LIBRETRO] Exiting wrap_dosbox\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting wrap_dosbox\n");
 }
 
 void init_threads() noexcept {
+    printf("[LIBRETRO] Entering init_threads\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering init_threads\n");
     if (!emuThread && !mainThread) {
-        fprintf(stderr, "[THREAD] Creating main and emulator threads\n");
         mainThread = co_active();
 #ifdef __GENODE__
         emuThread = co_create((1 << 16) * sizeof(void*), wrap_dosbox);
@@ -544,34 +578,23 @@ void init_threads() noexcept {
         emuThread = co_create(65536 * sizeof(void*) * 16, wrap_dosbox);
 #endif
         if (!emuThread) {
-            fprintf(stderr, "[THREAD] Failed to create emulator thread\n");
+            printf("[LIBRETRO] Failed to create emulator thread\n");
+            if (log_cb) log_cb(RETRO_LOG_ERROR, "[LIBRETRO] Failed to create emulator thread\n");
         } else {
-            fprintf(stderr, "[THREAD] Emulator thread created successfully\n");
+            printf("[LIBRETRO] Threads created: mainThread=%p, emuThread=%p\n", mainThread, emuThread);
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Threads created: mainThread=%p, emuThread=%p\n", mainThread, emuThread);
         }
     } else {
-        fprintf(stderr, "[THREAD] Init called more than once\n");
+        printf("[LIBRETRO] Init called more than once\n");
+        if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] Init called more than once\n");
     }
+    printf("[LIBRETRO] Exiting init_threads\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting init_threads\n");
 }
 
 void restart_program(std::vector<std::string>& /*parameters*/) {
-    if (log_cb) {
-        log_cb(RETRO_LOG_WARN, "Program restart not supported\n");
-    }
-    return;
-
-    if (emuThread) {
-        if (frontend_exit) {
-            co_switch(emuThread);
-        }
-        co_delete(emuThread);
-        emuThread = nullptr;
-    }
-
-    co_delete(mainThread);
-    mainThread = nullptr;
-
-    is_restarting = true;
-    init_threads();
+    printf("[LIBRETRO] Program restart not supported\n");
+    if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] Program restart not supported\n");
 }
 
 std::string normalize_path(std::string_view path) noexcept {
@@ -586,6 +609,8 @@ unsigned retro_api_version() {
 }
 
 void retro_set_environment(retro_environment_t cb) {
+    printf("[LIBRETRO] Entering retro_set_environment\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering retro_set_environment\n");
     environ_cb = cb;
 
     bool allow_no_game = true;
@@ -618,29 +643,30 @@ void retro_set_environment(retro_environment_t cb) {
     const char* system_dir = nullptr;
     if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &system_dir) && system_dir) {
         retro_system_directory = system_dir;
-        if (log_cb) {
-            log_cb(RETRO_LOG_INFO, "SYSTEM_DIRECTORY: %s\n", retro_system_directory.c_str());
-        }
+        printf("[LIBRETRO] SYSTEM_DIRECTORY: %s\n", retro_system_directory.c_str());
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] SYSTEM_DIRECTORY: %s\n", retro_system_directory.c_str());
     }
 
     const char* save_dir = nullptr;
     if (environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &save_dir) && save_dir) {
         retro_save_directory = save_dir;
-        if (log_cb) {
-            log_cb(RETRO_LOG_INFO, "SAVE_DIRECTORY: %s\n", retro_save_directory.c_str());
-        }
+        printf("[LIBRETRO] SAVE_DIRECTORY: %s\n", retro_save_directory.c_str());
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] SAVE_DIRECTORY: %s\n", retro_save_directory.c_str());
     }
 
     const char* content_dir = nullptr;
     if (environ_cb(RETRO_ENVIRONMENT_GET_CONTENT_DIRECTORY, &content_dir) && content_dir) {
         retro_content_directory = content_dir;
-        if (log_cb) {
-            log_cb(RETRO_LOG_INFO, "CONTENT_DIRECTORY: %s\n", retro_content_directory.c_str());
-        }
+        printf("[LIBRETRO] CONTENT_DIRECTORY: %s\n", retro_content_directory.c_str());
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] CONTENT_DIRECTORY: %s\n", retro_content_directory.c_str());
     }
+    printf("[LIBRETRO] Exiting retro_set_environment\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting retro_set_environment\n");
 }
 
 void retro_set_controller_port_device(unsigned port, unsigned device) {
+    printf("[LIBRETRO] Setting controller port %u to device %u\n", port, device);
+    if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Setting controller port %u to device %u\n", port, device);
     connected[port] = false;
     gamepad[port] = false;
     switch (device) {
@@ -653,12 +679,23 @@ void retro_set_controller_port_device(unsigned port, unsigned device) {
         gamepad[port] = false;
         break;
     case RETRO_DEVICE_KEYBOARD:
+    case RETRO_DEVICE_MOUSE:
+    case RETRO_DEVICE_ANALOG:
+        connected[port] = true;
+        gamepad[port] = false;
+        break;
+    case RETRO_DEVICE_NONE:
+        connected[port] = false;
+        gamepad[port] = false;
+        break;
     default:
+        printf("[LIBRETRO] Unsupported device %u for port %u\n", device, port);
+        if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] Unsupported device %u for port %u\n", device, port);
+        connected[port] = false;
+        gamepad[port] = false;
         break;
     }
     MAPPER_Init();
-    fprintf(stderr, "[LIBRETRO] Controller port %u set to device=%u, connected=%d, gamepad=%d\n", 
-            port, device, connected[port], gamepad[port]);
 }
 
 void retro_get_system_info(retro_system_info* info) {
@@ -684,65 +721,92 @@ void retro_get_system_av_info(retro_system_av_info* info) {
 }
 
 void retro_init() {
+    printf("[LIBRETRO] Entering retro_init\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering retro_init\n");
+
     struct retro_log_callback log;
     if (environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &log)) {
         log_cb = log.log;
-        fprintf(stderr, "[INIT] Logger interface initialized\n");
+        printf("[LIBRETRO] Logger interface initialized\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Logger interface initialized\n");
     } else {
+        printf("[LIBRETRO] Logger interface unavailable\n");
         log_cb = nullptr;
-        fprintf(stderr, "[INIT] Logger interface failed to initialize\n");
     }
 
     static struct retro_midi_interface midi_interface;
     if (environ_cb(RETRO_ENVIRONMENT_GET_MIDI_INTERFACE, &midi_interface)) {
-        //retro_midi_interface = &midi_interface;
-        fprintf(stderr, "[INIT] MIDI interface initialized\n");
+        printf("[LIBRETRO] MIDI interface initialized\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] MIDI interface initialized\n");
     } else {
-        //retro_midi_interface = nullptr;
-        fprintf(stderr, "[INIT] MIDI interface unavailable\n");
+        printf("[LIBRETRO] MIDI interface unavailable\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] MIDI interface unavailable\n");
     }
 
     RDOSGFXcolorMode = RETRO_PIXEL_FORMAT_XRGB8888;
     if (environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &RDOSGFXcolorMode)) {
-        fprintf(stderr, "[INIT] Pixel format set to XRGB8888\n");
+        printf("[LIBRETRO] Pixel format set to XRGB8888\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Pixel format set to XRGB8888\n");
     } else {
-        fprintf(stderr, "[INIT] Failed to set pixel format\n");
+        printf("[LIBRETRO] Failed to set pixel format\n");
+        if (log_cb) log_cb(RETRO_LOG_ERROR, "[LIBRETRO] Failed to set pixel format\n");
     }
 
-    fprintf(stderr, "[INIT] Starting thread initialization\n");
     init_threads();
-    fprintf(stderr, "[INIT] Thread initialization completed\n");
+    printf("[LIBRETRO] Exiting retro_init\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting retro_init\n");
 }
 
 void retro_deinit() {
-    fprintf(stderr, "[DEINIT] Entering retro_deinit, frontend_exit=%d, dosbox_exit=%d\n", frontend_exit, dosbox_exit);
-
+    printf("[LIBRETRO] Entering retro_deinit\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering retro_deinit\n");
     frontend_exit = !dosbox_exit;
+
+    if (control) {
+        printf("[LIBRETRO] Cleaning up Config\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Cleaning up Config\n");
+        delete control;
+        control = nullptr;
+    }
 
     if (emuThread) {
         if (frontend_exit) {
-            fprintf(stderr, "[DEINIT] Frontend exit, switching to emulator thread\n");
+            printf("[LIBRETRO] Frontend exit, switching to emulator thread\n");
+            if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Frontend exit, switching to emulator thread\n");
             co_switch(emuThread);
         }
-        fprintf(stderr, "[DEINIT] Deleting emulator thread\n");
+        printf("[LIBRETRO] Deleting emulator thread\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Deleting emulator thread\n");
         co_delete(emuThread);
         emuThread = nullptr;
     }
-    fprintf(stderr, "[DEINIT] Deinitialization complete\n");
+
+    if (mainThread) {
+        printf("[LIBRETRO] Deleting main thread\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Deleting main thread\n");
+        co_delete(mainThread);
+        mainThread = nullptr;
+    }
+    printf("[LIBRETRO] Exiting retro_deinit\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting retro_deinit\n");
 }
 
 bool retro_load_game(const retro_game_info* game) {
+    printf("[LIBRETRO] Entering retro_load_game\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering retro_load_game\n");
+
     if (!emuThread) {
-        fprintf(stderr, "[LOAD] Load game called without emulator thread\n");
+        printf("[LIBRETRO] Load game called without emulator thread\n");
+        if (log_cb) log_cb(RETRO_LOG_ERROR, "[LIBRETRO] Load game called without emulator thread\n");
         return false;
     }
 
     const char slash = PATH_SEPARATOR;
-    fprintf(stderr, "[LOAD] Starting game load, game=%p\n", game);
 
-    if (game) {
+    if (game && game->path) {
         loadPath = normalize_path(game->path);
-        fprintf(stderr, "[LOAD] Game path: %s\n", loadPath.c_str());
+        printf("[LIBRETRO] Game path: %s\n", loadPath.c_str());
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Game path: %s\n", loadPath.c_str());
         if (const size_t lastDot = loadPath.find_last_of('.'); lastDot != std::string::npos) {
             std::string extension = loadPath.substr(lastDot + 1);
             std::transform(extension.begin(), extension.end(), extension.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -750,43 +814,55 @@ bool retro_load_game(const retro_game_info* game) {
             if (extension == "conf") {
                 configPath = std::move(loadPath);
                 loadPath.clear();
-                fprintf(stderr, "[LOAD] Config file detected: %s\n", configPath.c_str());
-            } else if (configPath.empty()) {
-                configPath = normalize_path(retro_system_directory + slash + "DOSbox" + slash + "dosbox-libretro.conf");
-                fprintf(stderr, "[LOAD] Loading default config: %s\n", configPath.c_str());
+                printf("[LIBRETRO] Config file detected: %s\n", configPath.c_str());
+                if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Config file detected: %s\n", configPath.c_str());
             }
         }
     } else {
-        fprintf(stderr, "[LOAD] No game provided, using default config\n");
-        configPath = normalize_path(retro_system_directory + slash + "DOSbox" + slash + "dosbox-libretro.conf");
-        fprintf(stderr, "[LOAD] Loading default config: %s\n", configPath.c_str());
+        printf("[LIBRETRO] No game provided, using default config\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] No game provided, using default config\n");
     }
 
-    fprintf(stderr, "[LOAD] Switching to emulator thread\n");
+    if (configPath.empty()) {
+        configPath = normalize_path(retro_system_directory + slash + "DOSbox" + slash + "dosbox-libretro.conf");
+        printf("[LIBRETRO] Loading default config: %s\n", configPath.c_str());
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Loading default config: %s\n", configPath.c_str());
+    }
+
+    check_variables();
     co_switch(emuThread);
     samplesPerFrame = MIXER_RETRO_GetFrequency() / 60;
-    fprintf(stderr, "[LOAD] Game load completed, samplesPerFrame=%u\n", samplesPerFrame);
+    printf("[LIBRETRO] Game load completed, samplesPerFrame=%u\n", samplesPerFrame);
+    if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Game load completed, samplesPerFrame=%u\n", samplesPerFrame);
+    printf("[LIBRETRO] Exiting retro_load_game\n");
     return true;
 }
 
 bool retro_load_game_special(unsigned /*game_type*/, const retro_game_info* /*info*/, size_t /*num_info*/) {
+    printf("[LIBRETRO] retro_load_game_special not supported\n");
     return false;
 }
 
 void retro_run() {
-    fprintf(stderr, "[RUN] Entering retro_run, dosbox_exit=%d, emuThread=%p\n", dosbox_exit, emuThread);
+    printf("[LIBRETRO] Entering retro_run\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Entering retro_run\n");
 
     if (dosbox_exit && emuThread) {
-        fprintf(stderr, "[RUN] DOSBox exited, shutting down core\n");
+        printf("[LIBRETRO] Shutting down DOSBox\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Shutting down DOSBox\n");
         co_delete(emuThread);
         emuThread = nullptr;
         environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, nullptr);
+        printf("[LIBRETRO] Exiting retro_run after shutdown\n");
         return;
     }
 
     if (RDOSGFXwidth != currentWidth || RDOSGFXheight != currentHeight) {
+        printf("[LIBRETRO] Resolution changed %dx%d => %ldx%ld\n",
+               currentWidth, currentHeight, RDOSGFXwidth, RDOSGFXheight);
         if (log_cb) {
-            log_cb(RETRO_LOG_INFO, "Resolution changed %dx%d => %dx%d\n", currentWidth, currentHeight, RDOSGFXwidth, RDOSGFXheight);
+            log_cb(RETRO_LOG_INFO, "[LIBRETRO] Resolution changed %dx%d => %ldx%ld\n",
+                   currentWidth, currentHeight, RDOSGFXwidth, RDOSGFXheight);
         }
         retro_system_av_info new_av_info;
         retro_get_system_av_info(&new_av_info);
@@ -802,25 +878,40 @@ void retro_run() {
 
     bool updated = false;
     if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated) {
+        printf("[LIBRETRO] Core variables updated\n");
+        if (log_cb) log_cb(RETRO_LOG_INFO, "[LIBRETRO] Core variables updated\n");
         check_variables();
     }
 
     if (emuThread) {
         MAPPER_Run(false);
         co_switch(emuThread);
-        video_cb(RDOSGFXhaveFrame, RDOSGFXwidth, RDOSGFXheight, RDOSGFXpitch);
-        RDOSGFXhaveFrame = nullptr;
+        if (RDOSGFXhaveFrame) {
+            printf("[LIBRETRO] Video callback: frame=%p, width=%lu, height=%lu, pitch=%lu\n",
+                   RDOSGFXhaveFrame, RDOSGFXwidth, RDOSGFXheight, RDOSGFXpitch);
+            if (log_cb) {
+                log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Video callback: frame=%p, width=%lu, height=%lu, pitch=%lu\n",
+                       RDOSGFXhaveFrame, RDOSGFXwidth, RDOSGFXheight, RDOSGFXpitch);
+            }
+            video_cb(RDOSGFXhaveFrame, RDOSGFXwidth, RDOSGFXheight, RDOSGFXpitch);
+            RDOSGFXhaveFrame = nullptr;
+        }
+        printf("[LIBRETRO] Audio callback: samples=%u\n", samplesPerFrame);
+        if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Audio callback: samples=%u\n", samplesPerFrame);
         audio_batch_cb(reinterpret_cast<int16_t*>(audioData.data()), samplesPerFrame);
-    } else if (log_cb) {
-        log_cb(RETRO_LOG_WARN, "Run called without emulator thread\n");
+    } else {
+        printf("[LIBRETRO] Run called without emulator thread\n");
+        if (log_cb) log_cb(RETRO_LOG_WARN, "[LIBRETRO] Run called without emulator thread\n");
     }
+    printf("[LIBRETRO] Exiting retro_run\n");
+    if (log_cb) log_cb(RETRO_LOG_DEBUG, "[LIBRETRO] Exiting retro_run\n");
 }
 
 void retro_reset() {
+    printf("[LIBRETRO] Resetting emulator\n");
     restart_program(control->startup_params);
 }
 
-/* Stubs */
 void* retro_get_memory_data(unsigned type) {
     return type == RETRO_MEMORY_SYSTEM_RAM ? MemBase : nullptr;
 }
