@@ -133,7 +133,7 @@ static Bitu INT10_Handler() {
         INT10_ReadCharAttr(&reg_ax, reg_bh);
         fprintf(log_file, "Character and attribute read: AX=0x%04X\n", reg_ax);
         break;
-	case 0x09: // Write Character & Attribute at Cursor CX times
+    case 0x09: // Write Character & Attribute at Cursor CX times
     {
         fprintf(log_file, "Writing character and attribute: AL=0x%02X, BL=0x%02X, BH=0x%02X, CX=0x%04X\n",
                 reg_al, reg_bl, reg_bh, reg_cx);
@@ -1079,8 +1079,17 @@ static void SetupTandyBios() {
 }
 
 void INT10_Init(Section* /*sec*/) {
+    // NEW: Guard to prevent multiple initializations
+    static bool initialized = false;
     FILE* log_file = fopen("int10_log.txt", "a");
     if (!log_file) return;
+
+    if (initialized) {
+        fprintf(log_file, "INT10_Init skipped: Already initialized\n");
+        fclose(log_file);
+        return;
+    }
+
     fprintf(log_file, "Initializing INT10\n");
 
     INT10_InitVGA();
@@ -1094,6 +1103,7 @@ void INT10_Init(Section* /*sec*/) {
     INT10_Seg40Init();
     INT10_SetVideoMode(0x3);
 
+    initialized = true; // NEW: Mark as initialized
     fprintf(log_file, "INT10 initialized\n");
     fclose(log_file);
 }
