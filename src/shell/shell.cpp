@@ -285,54 +285,84 @@ void DOS_Shell::RunInternal(void) {
 }
 
 void DOS_Shell::Run(void) {
-	char input_line[CMD_MAXLINE] = {0};
-	std::string line;
-	if (cmd->FindStringRemainBegin("/C",line)) {
-		strcpy(input_line,line.c_str());
-		char* sep = strpbrk(input_line,"\r\n"); //GTA installer
-		if (sep) *sep = 0;
-		DOS_Shell temp;
-		temp.echo = echo;
-		temp.ParseLine(input_line);		//for *.exe *.com  |*.bat creates the bf needed by runinternal;
-		temp.RunInternal();				// exits when no bf is found.
-		return;
-	}
-	/* Start a normal shell and check for a first command init */
-	if (cmd->FindString("/INIT",line,true)) {
-		WriteOut(MSG_Get("SHELL_STARTUP_BEGIN"),VERSION);
+    fprintf(stderr, "[SHELL] Entering DOS_Shell::Run, echo=%d\n", echo);
+    char input_line[CMD_MAXLINE] = {0};
+    std::string line;
+    if (cmd->FindStringRemainBegin("/C", line)) {
+        fprintf(stderr, "[SHELL] Found /C, line=%s\n", line.c_str());
+        strcpy(input_line, line.c_str());
+        char* sep = strpbrk(input_line, "\r\n"); // GTA installer
+        if (sep) *sep = 0;
+        DOS_Shell temp;
+        temp.echo = echo;
+        fprintf(stderr, "[SHELL] Parsing /C command: %s\n", input_line);
+        temp.ParseLine(input_line); // for *.exe *.com |*.bat creates the bf needed by RunInternal
+        fprintf(stderr, "[SHELL] Running internal command\n");
+        temp.RunInternal(); // exits when no bf is found
+        fprintf(stderr, "[SHELL] /C command completed\n");
+        return;
+    }
+    /* Start a normal shell and check for a first command init */
+    if (cmd->FindString("/INIT", line, true)) {
+        fprintf(stderr, "[SHELL] Found /INIT, line=%s\n", line.c_str());
+        WriteOut(MSG_Get("SHELL_STARTUP_BEGIN"), VERSION);
 #if C_DEBUG
-		WriteOut(MSG_Get("SHELL_STARTUP_DEBUG"));
+        WriteOut(MSG_Get("SHELL_STARTUP_DEBUG"));
 #endif
-		if (machine == MCH_CGA) WriteOut(MSG_Get("SHELL_STARTUP_CGA"));
-		if (machine == MCH_HERC) WriteOut(MSG_Get("SHELL_STARTUP_HERC"));
-		WriteOut(MSG_Get("SHELL_STARTUP_END"));
-
-		strcpy(input_line,line.c_str());
-		line.erase();
-		ParseLine(input_line);
-	} else {
-		WriteOut(MSG_Get("SHELL_STARTUP_SUB"),VERSION);
-	}
-	do {
-		if (bf){
-			if(bf->ReadLine(input_line)) {
-				if (echo) {
-					if (input_line[0]!='@') {
-						ShowPrompt();
-						WriteOut_NoParsing(input_line);
-						WriteOut_NoParsing("\n");
-					};
-				};
-				ParseLine(input_line);
-				if (echo) WriteOut("\n");
-			}
-		} else {
-			if (echo) ShowPrompt();
-			InputCommand(input_line);
-			ParseLine(input_line);
-			if (echo && !bf) WriteOut_NoParsing("\n");
-		}
-	} while (!exit);
+        if (machine == MCH_CGA) WriteOut(MSG_Get("SHELL_STARTUP_CGA"));
+        if (machine == MCH_HERC) WriteOut(MSG_Get("SHELL_STARTUP_HERC"));
+        WriteOut(MSG_Get("SHELL_STARTUP_END"));
+        strcpy(input_line, line.c_str());
+        line.erase();
+        fprintf(stderr, "[SHELL] Parsing init command: %s\n", input_line);
+        ParseLine(input_line);
+        fprintf(stderr, "[SHELL] Init command parsed\n");
+    } else {
+        fprintf(stderr, "[SHELL] Displaying startup message\n");
+        WriteOut(MSG_Get("SHELL_STARTUP_SUB"), VERSION);
+    }
+    do {
+        fprintf(stderr, "[SHELL] Loop start, bf=%p, exit=%d\n", bf, exit);
+        if (bf) {
+            fprintf(stderr, "[SHELL] Reading from batch file\n");
+            if (bf->ReadLine(input_line)) {
+                fprintf(stderr, "[SHELL] Read line: %s\n", input_line);
+                if (echo) {
+                    if (input_line[0] != '@') {
+                        fprintf(stderr, "[SHELL] Showing prompt and writing line\n");
+                        ShowPrompt();
+                        WriteOut_NoParsing(input_line);
+                        WriteOut_NoParsing("\n");
+                    }
+                }
+                fprintf(stderr, "[SHELL] Parsing batch line: %s\n", input_line);
+                ParseLine(input_line);
+                if (echo) {
+                    fprintf(stderr, "[SHELL] Writing newline after batch line\n");
+                    WriteOut("\n");
+                }
+            } else {
+                fprintf(stderr, "[SHELL] Batch file read failed or ended\n");
+            }
+        } else {
+            fprintf(stderr, "[SHELL] Waiting for user input, echo=%d\n", echo);
+            if (echo) {
+                fprintf(stderr, "[SHELL] Showing prompt\n");
+                ShowPrompt();
+            }
+            fprintf(stderr, "[SHELL] Calling InputCommand\n");
+            InputCommand(input_line);
+            fprintf(stderr, "[SHELL] Input received: %s\n", input_line);
+            fprintf(stderr, "[SHELL] Parsing input line: %s\n", input_line);
+            ParseLine(input_line);
+            if (echo && !bf) {
+                fprintf(stderr, "[SHELL] Writing newline after input\n");
+                WriteOut_NoParsing("\n");
+            }
+        }
+        fprintf(stderr, "[SHELL] Loop end, exit=%d\n", exit);
+    } while (!exit);
+    fprintf(stderr, "[SHELL] Exiting DOS_Shell::Run\n");
 }
 
 void DOS_Shell::SyntaxError(void) {
